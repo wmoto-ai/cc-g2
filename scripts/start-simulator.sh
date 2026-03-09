@@ -5,7 +5,7 @@ set -euo pipefail
 # pnpm dlx で evenhub-simulator を直接実行する。even-dev は不要。
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PORT="${SIMULATOR_PORT:-5174}"
+PORT="${SIMULATOR_PORT:-5173}"
 HUB_PORT="${HUB_PORT:-8787}"
 SIMULATOR_VERSION="${SIMULATOR_VERSION:-0.5.3}"
 URL="http://127.0.0.1:${PORT}"

@@ -122,7 +122,7 @@ Voice comments are returned to Claude Code as **deny + instruction text**.
 ./scripts/start-simulator.sh
 ```
 
-- Opens a browser-based phone + G2 simulator on port 5174
+- Opens a browser-based phone + G2 simulator on port 5173
 - Add `?dev=1` to show Developer Tools / Event Log
 - Use `SIMULATOR_VERSION=...` if you want to switch simulator versions
 

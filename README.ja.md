@@ -181,7 +181,7 @@ Claude Code ─ POST /api/hooks/permission-request ─► Hub
 ./scripts/start-simulator.sh
 ```
 
-- ブラウザでスマホ画面 + G2 画面の simulator が開きます（port 5174）
+- ブラウザでスマホ画面 + G2 画面の simulator が開きます（port 5173）
 - `?dev=1` を付けると Developer Tools / Event Log を表示できます
 - 必要なら `SIMULATOR_VERSION=...` で simulator version を切り替えられます
 
