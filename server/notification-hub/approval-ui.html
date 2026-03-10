@@ -18,6 +18,7 @@
   .badge-pending { background: #533a00; color: #ffc107; }
   .badge-approve { background: #0a3d0a; color: #4caf50; }
   .badge-deny { background: #3d0a0a; color: #f44336; }
+  .badge-cleanup { background: #243447; color: #9fb3c8; }
   .detail { font-size: 0.85rem; color: #aaa; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; margin-bottom: 10px; background: #0d1b36; padding: 8px; border-radius: 4px; }
   .meta { font-size: 0.75rem; color: #666; margin-bottom: 8px; }
   .actions { display: flex; gap: 8px; }
@@ -75,11 +76,20 @@ function render() {
   }
   el.innerHTML = allApprovals.map(function(a) {
     var decided = a.status === 'decided' || a._decided;
+    var isApprove = a.decision === 'approve';
+    var isDeny = a.decision === 'deny';
+    var cleanupLabel = a.resolution === 'superseded'
+      ? 'cleanup: superseded'
+      : a.resolution === 'session-ended'
+        ? 'cleanup: session ended'
+        : a.resolution === 'terminal-disconnect'
+          ? 'cleanup: terminal disconnect'
+          : 'cleanup';
     var badgeClass = decided
-      ? (a.decision === 'approve' ? 'badge-approve' : 'badge-deny')
+      ? (isApprove ? 'badge-approve' : isDeny ? 'badge-deny' : 'badge-cleanup')
       : 'badge-pending';
     var badgeText = decided
-      ? (a.decision === 'approve' ? '承認済' : '拒否済')
+      ? (isApprove ? '承認済' : isDeny ? '拒否済' : cleanupLabel)
       : 'pending';
     var decidedBy = a.decidedBy ? ' (by ' + esc(a.decidedBy) + ')' : '';
 

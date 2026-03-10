@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import http from 'node:http'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -195,6 +196,77 @@ describe('Notification Hub — Permission Request HTTP Hook Endpoint', () => {
       await postJson(hubBase, `/api/approvals/${pending.id}/decide`, { decision: 'approve' })
     }
     await hookPromise
+  })
+
+  it('POST /api/hooks/permission-request — superseded cleanup returns empty response, not allow', async () => {
+    const firstHookPromise = postJson(hubBase, '/api/hooks/permission-request', {
+      session_id: 'supersede-session',
+      cwd: '/tmp/supersede-project',
+      tool_name: 'Bash',
+      tool_input: { command: 'echo first' },
+    })
+
+    await new Promise((r) => setTimeout(r, 400))
+
+    const secondHookPromise = postJson(hubBase, '/api/hooks/permission-request', {
+      session_id: 'supersede-session',
+      cwd: '/tmp/supersede-project',
+      tool_name: 'Bash',
+      tool_input: { command: 'echo second' },
+    })
+
+    const firstResult = await firstHookPromise
+    expect(firstResult.status).toBe(200)
+    expect(firstResult.data).toEqual({})
+
+    const { data: pendingData } = await getJson(hubBase, '/api/approvals')
+    const pending = pendingData.items.find((a) => a.cwd === '/tmp/supersede-project' && a.status === 'pending')
+    expect(pending).toBeDefined()
+    expect(pending.resolution).toBeUndefined()
+
+    await postJson(hubBase, `/api/approvals/${pending.id}/decide`, { decision: 'approve', source: 'g2' })
+    const secondResult = await secondHookPromise
+    expect(secondResult.status).toBe(200)
+    expect(secondResult.data.hookSpecificOutput.decision.behavior).toBe('allow')
+  })
+
+  it('POST /api/hooks/permission-request — terminal disconnect is recorded as cleanup', async () => {
+    const body = JSON.stringify({
+      session_id: 'disconnect-session',
+      cwd: '/tmp/disconnect-project',
+      tool_name: 'Bash',
+      tool_input: { command: 'echo disconnect' },
+    })
+    const url = new URL('/api/hooks/permission-request', hubBase)
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        'X-CC-G2-Token': TEST_HUB_TOKEN,
+      },
+    })
+    req.on('error', () => {})
+    req.write(body)
+    req.end()
+
+    await new Promise((r) => setTimeout(r, 500))
+
+    const { data: pendingData } = await getJson(hubBase, '/api/approvals')
+    const pending = pendingData.items.find((a) => a.cwd === '/tmp/disconnect-project' && a.status === 'pending')
+    expect(pending).toBeDefined()
+
+    req.destroy()
+    await new Promise((r) => setTimeout(r, 2200))
+
+    const { data: approvalData } = await getJson(hubBase, `/api/approvals/${pending.id}`)
+    expect(approvalData.approval.status).toBe('decided')
+    expect(approvalData.approval.decision).toBeUndefined()
+    expect(approvalData.approval.resolution).toBe('terminal-disconnect')
+    expect(approvalData.approval.decidedBy).toBe('terminal')
   })
 
   it('POST /api/client-events — rejects oversized payloads with 413', async () => {

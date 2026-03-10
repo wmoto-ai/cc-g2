@@ -238,6 +238,49 @@ describe('Notification Hub — Approval Broker API', () => {
     expect(ids).toContain(a2.approvalId)
   })
 
+  it('same-session replacement is recorded as cleanup, not approve', async () => {
+    const first = await createTestApproval({
+      toolName: 'SessionTool1',
+      metadata: { sessionId: 'cleanup-session-1' },
+    })
+    const second = await createTestApproval({
+      toolName: 'SessionTool2',
+      metadata: { sessionId: 'cleanup-session-1' },
+    })
+
+    expect(second.approvalId).toEqual(expect.any(String))
+
+    const { status, data } = await getJson(hubBase, `/api/approvals/${first.approvalId}`)
+    expect(status).toBe(200)
+    expect(data.approval.status).toBe('decided')
+    expect(data.approval.decision).toBeUndefined()
+    expect(data.approval.resolution).toBe('superseded')
+    expect(data.approval.decidedBy).toBe('auto-superseded')
+  })
+
+  it('stop notification cleans up same-session pending approvals without approving them', async () => {
+    const created = await createTestApproval({
+      toolName: 'StopCleanupTool',
+      metadata: { sessionId: 'cleanup-session-stop' },
+    })
+
+    const stopPayload = {
+      hookType: 'stop',
+      title: 'Claude Code stopped',
+      body: 'Session ended',
+      metadata: { hookType: 'stop', sessionId: 'cleanup-session-stop' },
+    }
+    const stop = await postJson(hubBase, '/api/notify/moshi', stopPayload)
+    expect(stop.status).toBe(201)
+
+    const { status, data } = await getJson(hubBase, `/api/approvals/${created.approvalId}`)
+    expect(status).toBe(200)
+    expect(data.approval.status).toBe('decided')
+    expect(data.approval.decision).toBeUndefined()
+    expect(data.approval.resolution).toBe('session-ended')
+    expect(data.approval.decidedBy).toBe('auto-session-end')
+  })
+
   it('Notification linkage — approval notification appears in /api/notifications', async () => {
     const title = `Link-test-${Date.now()}`
     const created = await createTestApproval({ title })

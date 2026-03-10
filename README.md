@@ -32,6 +32,8 @@ PC (Claude Code + Hub) <-> iPhone (Even App + Vite UI) <-> Even G2
 - **Vite UI** (`:5173`) provides the G2 companion web UI
 - **Claude Code HTTP hook** sends permission requests to the Hub
 
+The Hub is intended to mirror and answer explicit permission prompts. It should not broaden Claude Code permissions or override user / org policy outside the normal `approve` / `deny` flow.
+
 ## Recommended setup
 
 `cc-g2` works best with a setup based on **tmux + Tailscale + iPhone + Even G2**.
