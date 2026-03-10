@@ -113,6 +113,11 @@ Claude Code v2.1.47 で導入された回帰バグ（[GitHub Issue #26851](https
 
 cc-g2 の PermissionRequest HTTP フックが機能するため、G2 からの承認で運用可能。PC からも承認したい場合は Hub の Web UI（`http://127.0.0.1:8787/ui`）を使用できる。
 
+補足:
+- Claude Code 側の `allow` / `deny` / managed policy を優先する設計を前提とする
+- cc-g2 側は PermissionRequest の通知と承認 UI を提供するだけで、独自に広く許可を追加しない
+- セッション終了や stale レコードの掃除は `approve` 扱いではなく cleanup として記録する
+
 ### 回避策
 
 - フォアグラウンドサブエージェントを使う（PC・G2 両方で承認可能）

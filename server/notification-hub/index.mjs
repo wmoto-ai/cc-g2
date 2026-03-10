@@ -57,8 +57,8 @@ const hubMaxSttBodyBytes = Math.max(
 )
 
 /** @typedef {{id:string,source:'moshi'|'claude-code',title:string,summary:string,fullText:string,createdAt:string,replyCapable:boolean,raw?:unknown,metadata?:Record<string, unknown>}} NotificationItem */
-/** @typedef {{id:string,notificationId:string,replyText:string,createdAt:string,status:'stubbed'|'forwarded'|'failed',action?:'approve'|'deny'|'comment',resolvedAction?:'approve'|'deny'|'comment',comment?:string,source?:string,error?:string}} ReplyRecord */
-/** @typedef {{id:string,notificationId:string,source:string,toolName:string,toolInput:unknown,toolId:string,cwd:string,reason:string,agentName:string,status:'pending'|'decided'|'expired',decision?:'approve'|'deny',comment?:string,decidedBy?:string,createdAt:string,decidedAt?:string}} ApprovalRecord */
+/** @typedef {{id:string,notificationId:string,replyText:string,createdAt:string,status:'stubbed'|'forwarded'|'failed',action?:'approve'|'deny'|'comment',resolvedAction?:'approve'|'deny'|'comment',result?:'resolved'|'relayed'|'ignored',ignoredReason?:'approval-not-pending'|'approval-link-not-found',comment?:string,source?:string,error?:string}} ReplyRecord */
+/** @typedef {{id:string,notificationId:string,source:string,toolName:string,toolInput:unknown,toolId:string,cwd:string,reason:string,agentName:string,status:'pending'|'decided'|'expired',decision?:'approve'|'deny',resolution?:'superseded'|'session-ended'|'terminal-disconnect',comment?:string,decidedBy?:string,createdAt:string,decidedAt?:string,deliveredAt?:string}} ApprovalRecord */
 
 /** @type {NotificationItem[]} */
 const notifications = []
@@ -289,16 +289,8 @@ async function addNotification(payload, logPrefix = 'notification') {
         if (a.status === 'pending') {
           const n = notificationsById.get(a.notificationId)
           if (n?.metadata?.sessionId === sessionId) {
-            a.status = 'decided'
-            a.decision = 'approve'
-            a.decidedBy = 'auto-session-end'
-            a.decidedAt = now
-            a.deliveredAt = now
-            appendJsonl(
-              approvalsFile,
-              persistedApproval({ ...a, _event: 'decided' }, { persistToolInput: hubPersistToolInput }),
-            ).catch(() => {})
-            log(`approval auto-resolved on stop id=${a.id} session=${sessionId}`)
+            markApprovalCleanup(a, 'session-ended', 'auto-session-end', now)
+            log(`approval auto-cleaned on stop id=${a.id} session=${sessionId}`)
           }
         }
       }
@@ -494,29 +486,6 @@ async function createApproval(params) {
   approvalsByNotificationId.set(notification.id, record)
   await appendJsonl(approvalsFile, persistedApproval(record, { persistToolInput: hubPersistToolInput }))
 
-  // 同セッションの古い pending 承認を自動解決（PC側承認の検知代替）
-  // 新しい承認リクエストが来た = 前のツールは承認済みで完了している
-  const sessionId = extraMeta?.sessionId
-  if (sessionId) {
-    for (const a of approvals) {
-      if (a.id !== approvalId && a.status === 'pending') {
-        const n = notificationsById.get(a.notificationId)
-        if (n?.metadata?.sessionId === sessionId) {
-          a.status = 'decided'
-          a.decision = 'approve'
-          a.decidedBy = 'auto-superseded'
-          a.decidedAt = now
-          a.deliveredAt = now
-          appendJsonl(
-            approvalsFile,
-            persistedApproval({ ...a, _event: 'decided' }, { persistToolInput: hubPersistToolInput }),
-          ).catch(() => {})
-          log(`approval auto-superseded id=${a.id} by new approval ${approvalId}`)
-        }
-      }
-    }
-  }
-
   log(`approval created id=${record.id} notificationId=${notification.id} tool=${toolName}`)
   return { approval: record, notification }
 }
@@ -527,6 +496,7 @@ function resolveApproval(approvalId, decision, comment, decidedBy) {
   if (record.status !== 'pending') return record
   record.status = 'decided'
   record.decision = decision
+  record.resolution = undefined
   record.comment = comment || undefined
   record.decidedBy = decidedBy || undefined
   record.decidedAt = new Date().toISOString()
@@ -537,6 +507,25 @@ function resolveApproval(approvalId, decision, comment, decidedBy) {
     log(`approval persist error ${err instanceof Error ? err.message : String(err)}`),
   )
   log(`approval decided id=${record.id} decision=${decision} by=${decidedBy || 'unknown'}`)
+  return record
+}
+
+function markApprovalCleanup(record, resolution, decidedBy, decidedAt = new Date().toISOString()) {
+  if (!record || record.status !== 'pending') return record
+  record.status = 'decided'
+  record.decision = undefined
+  record.resolution = resolution
+  record.comment = undefined
+  record.decidedBy = decidedBy || undefined
+  record.decidedAt = decidedAt
+  record.deliveredAt = decidedAt
+  appendJsonl(
+    approvalsFile,
+    persistedApproval({ ...record, _event: 'decided' }, { persistToolInput: hubPersistToolInput }),
+  ).catch((err) =>
+    log(`approval persist error ${err instanceof Error ? err.message : String(err)}`),
+  )
+  log(`approval cleaned up id=${record.id} resolution=${resolution} by=${decidedBy || 'unknown'}`)
   return record
 }
 
@@ -577,6 +566,7 @@ async function bootstrap() {
       if (existing) {
         existing.status = a.status
         existing.decision = a.decision
+        existing.resolution = a.resolution
         existing.comment = a.comment
         existing.decidedBy = a.decidedBy
         existing.decidedAt = a.decidedAt
@@ -686,6 +676,7 @@ async function handlePermissionRequestHook(req, res) {
   let clientDisconnected = false
   const onClose = () => { clientDisconnected = true }
   req.on('close', onClose)
+  res.on('close', onClose)
 
   const deadline = Date.now() + HOOK_POLL_TIMEOUT_MS
   while (Date.now() < deadline) {
@@ -693,24 +684,18 @@ async function handlePermissionRequestHook(req, res) {
     if (clientDisconnected) {
       const record = approvalsById.get(approval.id)
       if (record && record.status === 'pending') {
-        record.status = 'decided'
-        record.decision = 'approve'
-        record.decidedBy = 'terminal'
-        record.decidedAt = new Date().toISOString()
-        record.deliveredAt = record.decidedAt
-        appendJsonl(
-          approvalsFile,
-          persistedApproval({ ...record, _event: 'decided' }, { persistToolInput: hubPersistToolInput }),
-        ).catch(() => {})
-        log(`approval resolved by terminal disconnect id=${record.id}`)
+        markApprovalCleanup(record, 'terminal-disconnect', 'terminal')
+        log(`approval cleaned up by terminal disconnect id=${record.id}`)
       }
       req.off('close', onClose)
+      res.off('close', onClose)
       return
     }
     const record = approvalsById.get(approval.id)
     if (record && record.status === 'decided') {
       record.deliveredAt = new Date().toISOString()
       req.off('close', onClose)
+      res.off('close', onClose)
       if (record.decision === 'approve') {
         return sendJson(res, 200, {
           hookSpecificOutput: {
@@ -718,7 +703,8 @@ async function handlePermissionRequestHook(req, res) {
             decision: { behavior: 'allow' },
           },
         })
-      } else {
+      }
+      if (record.decision === 'deny') {
         const message = record.comment
           ? `G2: ${record.comment}`
           : 'G2から拒否されました'
@@ -729,11 +715,16 @@ async function handlePermissionRequestHook(req, res) {
           },
         })
       }
+      log(
+        `approval cleanup observed while waiting id=${record.id} resolution=${record.resolution || 'unknown'}`,
+      )
+      return sendJson(res, 200, {})
     }
   }
 
   // Timeout: return empty response → Claude Code shows normal dialog
   req.off('close', onClose)
+  res.off('close', onClose)
   sendJson(res, 200, {})
 }
 
@@ -936,6 +927,8 @@ const server = createServer(async (req, res) => {
         status: 'stubbed',
         action: action ? /** @type {'approve'|'deny'|'comment'} */ (action) : undefined,
         resolvedAction: undefined,
+        result: undefined,
+        ignoredReason: undefined,
         comment: comment || undefined,
         source: source || undefined,
       }
@@ -1016,6 +1009,7 @@ const server = createServer(async (req, res) => {
         }
         if (resolvedAction) {
           record.resolvedAction = resolvedAction
+          record.result = 'resolved'
           resolveApproval(linkedApproval.id, resolvedAction, comment, source || 'g2')
           log(
             `approval-broker resolved id=${linkedApproval.id} action=${resolvedAction} (original=${action || 'none'} text=${(comment || replyText || '').slice(0, 50)})`,
@@ -1029,6 +1023,7 @@ const server = createServer(async (req, res) => {
           // HTTP レスポンスで Claude Code に返す。tmux relay は不要。
           const commentText = comment || replyText || ''
           record.resolvedAction = 'deny'
+          record.result = 'resolved'
           resolveApproval(linkedApproval.id, 'deny', commentText, source || 'g2')
           log(
             `approval-broker resolved as deny+comment id=${linkedApproval.id} text=${commentText.slice(0, 50)}`,
@@ -1039,13 +1034,22 @@ const server = createServer(async (req, res) => {
         // Stale/ambiguous approval replies must not be relayed to tmux.
         // Otherwise an old "approve" tap can affect a newer pending prompt.
         shouldRelay = false
+        record.result = 'ignored'
         if (linkedApproval) {
+          record.ignoredReason = 'approval-not-pending'
+          record.error = 'Approval is no longer pending'
           log(
             `reply relay skipped: approval already decided id=${linkedApproval.id} action=${action || 'none'}`,
           )
         } else {
+          record.ignoredReason = 'approval-link-not-found'
+          record.error = 'Approval link not found'
           log(`reply relay skipped: approval link not found notificationId=${id} action=${action || 'none'}`)
         }
+      }
+
+      if (!record.result) {
+        record.result = 'relayed'
       }
 
       const fwd = await forwardReplyIfConfigured({
@@ -1073,7 +1077,7 @@ const server = createServer(async (req, res) => {
       else if (statuses.includes('forwarded')) record.status = 'forwarded'
       else record.status = 'stubbed'
       const errors = [fwd.error, relay.error].filter(Boolean)
-      if (errors.length > 0) record.error = errors.join(' | ')
+      if (errors.length > 0) record.error = [record.error, ...errors].filter(Boolean).join(' | ')
       replies.push(record)
       await appendJsonl(repliesFile, record)
 

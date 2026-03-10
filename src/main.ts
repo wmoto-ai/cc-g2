@@ -173,8 +173,22 @@ function formatRelativeTime(ms: number | null): string {
   return new Date(ms).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
 }
 
-function isSuccessfulReplyStatus(status: string | undefined): boolean {
-  return status !== 'failed'
+function getReplyResultMessage(res: { reply?: { status?: string; result?: string; error?: string; ignoredReason?: string } } | undefined): { ok: boolean; message?: string } {
+  const reply = res?.reply
+  if (!reply) return { ok: true }
+  if (reply.status === 'failed') {
+    return { ok: false, message: reply.error || 'reply failed' }
+  }
+  if (reply.result === 'ignored') {
+    if (reply.ignoredReason === 'approval-not-pending') {
+      return { ok: false, message: 'この承認は既に無効です' }
+    }
+    if (reply.ignoredReason === 'approval-link-not-found') {
+      return { ok: false, message: '承認リンクが見つかりません' }
+    }
+    return { ok: false, message: reply.error || 'reply ignored' }
+  }
+  return { ok: true }
 }
 
 function setPill(id: string, text: string, tone: 'neutral' | 'ok' | 'warn' | 'error' = 'neutral') {
@@ -935,13 +949,14 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
                 source: 'g2',
               })
               const status = res.reply?.status || 'ok'
+              const result = getReplyResultMessage(res)
               log(`通知アクション送信完了: action=${action} status=${status}`)
               // await 中にユーザー操作でリストに戻っていたら結果画面をスキップ
               if (notifState.screen === 'reply-sending') {
-                if (isSuccessfulReplyStatus(status)) {
+                if (result.ok) {
                   await glassesUI.showReplyResult(connection!, true, action === 'approve' ? '承認' : '拒否')
                 } else {
-                  await glassesUI.showReplyResult(connection!, false, status)
+                  await glassesUI.showReplyResult(connection!, false, result.message || status)
                 }
               }
             } catch (err) {
@@ -1070,13 +1085,14 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
                 source: 'g2',
               })
               const status = res.reply?.status || 'ok'
+              const result = getReplyResultMessage(res)
               log(`返信送信完了: status=${status}`)
               // await 中にユーザー操作でリストに戻っていたら結果画面をスキップ
               if (notifState.screen === 'reply-sending') {
-                if (isSuccessfulReplyStatus(status)) {
+                if (result.ok) {
                   await glassesUI.showReplyResult(connection!, true)
                 } else {
-                  await glassesUI.showReplyResult(connection!, false, status)
+                  await glassesUI.showReplyResult(connection!, false, result.message || status)
                 }
               }
             } catch (err) {

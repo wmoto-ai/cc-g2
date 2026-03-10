@@ -35,7 +35,15 @@ export type NotificationDetailResponse = {
 
 export type NotificationReplyResponse = {
   ok: boolean
-  reply?: { id: string; status: string; action?: string }
+  reply?: {
+    id: string
+    status: string
+    action?: string
+    resolvedAction?: string
+    result?: 'resolved' | 'relayed' | 'ignored'
+    ignoredReason?: 'approval-not-pending' | 'approval-link-not-found'
+    error?: string
+  }
 }
 
 export type NotificationReplyRequest = {
