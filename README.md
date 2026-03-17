@@ -14,6 +14,7 @@ Even G2 can open notifications, record a voice reply, and send that response bac
 - Send voice comments back to Claude Code
 - Check completion notifications on G2
 - Browse recent notifications and details on the glasses
+- Launch Claude Code sessions by voice via Even App custom AI
 
 ## Current limitations
 
@@ -25,11 +26,12 @@ Even G2 can open notifications, record a voice reply, and send that response bac
 ## Architecture
 
 ```text
-PC (Claude Code + Hub) <-> iPhone (Even App + Vite UI) <-> Even G2
+PC (Claude Code + Hub + Voice Entry) <-> iPhone (Even App + Vite UI) <-> Even G2
 ```
 
 - **Notification Hub** (`:8787`) handles notifications and approval flow
 - **Vite UI** (`:5173`) provides the G2 companion web UI
+- **Voice Entry** (`:8797`) launches sessions by voice (optional)
 - **Claude Code HTTP hook** sends permission requests to the Hub
 
 The Hub is intended to mirror and answer explicit permission prompts. It should not broaden Claude Code permissions or override user / org policy outside the normal `approve` / `deny` flow.
@@ -39,7 +41,7 @@ The Hub is intended to mirror and answer explicit permission prompts. It should 
 `cc-g2` works best with a setup based on **tmux + Tailscale + iPhone + Even G2**.
 
 - **tmux** keeps the Claude Code session alive and supports the reply relay flow
-- **Tailscale** makes it easier for the iPhone to reach the local Hub safely
+- **Tailscale** makes it easier for the iPhone to reach the local Hub safely. You can also use a local IP on the same WiFi, but Tailscale is convenient for remote or cross-network access
 - **Moshi or similar helper notifications** are optional, but useful when you are away from your desk
 - **G2 notifications** are useful for checking pending approvals and completions
 
@@ -70,15 +72,24 @@ pnpm install
 
 ```bash
 cp .env.example .env.local
-# Add GROQ_API_KEY if you want speech-to-text
+```
 
+Key settings in `.env.local`:
+
+| Variable | Purpose |
+|----------|---------|
+| `GROQ_API_KEY` | STT for voice comments (Groq, optional) |
+| `CC_G2_VOICE_ENTRY_ENABLED=0` | Disable Voice Entry (enabled by default) |
+| `CC_G2_REPO_ROOTS` | Repository scan path (default: `~/Repos`) |
+
+```bash
 mkdir -p ~/.local/bin
 ln -sf "$(pwd)/scripts/cc-g2.sh" ~/.local/bin/cc-g2
 export PATH="$HOME/.local/bin:$PATH"
 command -v cc-g2
 ```
 
-Restart the infra with `cc-g2 !` after changing `.env.local`.
+Restart the infra with `cc-g2 !` after changing `.env.local`. From outside the tmux session, use `cc-g2 stop && cc-g2`.
 
 ### 3. Start
 
@@ -117,6 +128,36 @@ This starts the Hub and Vite UI, injects Claude Code hooks, prepares a tmux sess
 5. **Swipe cancels recording** while recording is active
 
 Voice comments are returned to Claude Code as **deny + instruction text**.
+
+## Voice Entry
+
+Launch Claude Code sessions by speaking to G2 via Even App's custom AI agent.
+
+### Setup
+
+1. Voice Entry is enabled by default. To disable, add `CC_G2_VOICE_ENTRY_ENABLED=0` to `.env.local` and restart with `cc-g2 !`
+2. Verify with `cc-g2 status` — look for `Voice entry (port 8797): running`
+3. In Even App → Conversate → Custom AI Agent, set:
+   - **Endpoint URL**: `http://<Tailscale hostname or IP>:8797/v1/chat/completions`
+   - **Bearer token**: auto-generated on first start, check with `cat tmp/voice-entry/voice-entry-token`
+
+Find your Tailscale address:
+
+```bash
+tailscale status --self     # hostname (recommended)
+tailscale ip -4             # IP fallback
+```
+
+### Usage
+
+Say "Hey Even, fix tests in my-repo" and Voice Entry will:
+1. Transcribe your speech (via Even App STT)
+2. Auto-detect the target repository
+3. Launch a new `cc-g2` session
+
+Say "continue" or "さっきの続き" to resume the last session.
+
+Repository candidates are scanned from `CC_G2_REPO_ROOTS` (default: `~/Repos`).
 
 ## Simulator
 

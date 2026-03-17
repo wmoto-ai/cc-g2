@@ -8,9 +8,10 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "hub:dev": "node server/notification-hub/index.mjs",
     "hub:watch": "node --watch server/notification-hub/index.mjs",
+    "voice-entry:dev": "node server/voice-entry/index.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run test/even-events.test.ts test/format-and-wav.test.ts test/hub-approval-api.test.mjs test/hub-hook-endpoint.test.mjs",
+    "test": "vitest run test/even-events.test.ts test/format-and-wav.test.ts test/hub-approval-api.test.mjs test/hub-hook-endpoint.test.mjs test/voice-entry.test.mjs",
     "test:all": "vitest run",
     "test:watch": "vitest"
   },

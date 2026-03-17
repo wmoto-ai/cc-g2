@@ -32,15 +32,9 @@ resolve_groq_api_key() {
     printf '%s' "$GROQ_API_KEY"
     return
   fi
-  if [ -n "${VITE_GROQ_API_KEY:-}" ]; then
-    printf '%s' "$VITE_GROQ_API_KEY"
-    return
-  fi
   local value=""
   value="$(read_env_file_var "$REPO_DIR/.env.local" "GROQ_API_KEY" || true)"
-  [ -n "$value" ] || value="$(read_env_file_var "$REPO_DIR/.env.local" "VITE_GROQ_API_KEY" || true)"
   [ -n "$value" ] || value="$(read_env_file_var "$REPO_DIR/.env" "GROQ_API_KEY" || true)"
-  [ -n "$value" ] || value="$(read_env_file_var "$REPO_DIR/.env" "VITE_GROQ_API_KEY" || true)"
   printf '%s' "$value"
 }
 

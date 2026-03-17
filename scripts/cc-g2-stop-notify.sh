@@ -240,12 +240,24 @@ PAYLOAD=$(jq -n \
   }')
 
 CURRENT_STEP="post_notify"
-curl -s -X POST "${HUB_URL}/api/notify/moshi" \
-  -H "Content-Type: application/json" \
-  ${HUB_AUTH_TOKEN:+-H "X-CC-G2-Token: ${HUB_AUTH_TOKEN}"} \
-  -d "$PAYLOAD" \
-  --connect-timeout 3 \
-  --max-time 5 \
-  > /dev/null 2>&1 || true
+HTTP_CODE="$(
+  curl -s -o /dev/null -w '%{http_code}' -X POST "${HUB_URL}/api/notify/moshi" \
+    -H "Content-Type: application/json" \
+    ${HUB_AUTH_TOKEN:+-H "X-CC-G2-Token: ${HUB_AUTH_TOKEN}"} \
+    -d "$PAYLOAD" \
+    --connect-timeout 3 \
+    --max-time 5 || true
+)"
+
+if [ "${HTTP_CODE:-000}" -lt 200 ] || [ "${HTTP_CODE:-000}" -ge 300 ]; then
+  CURRENT_STEP="post_notify_http_${HTTP_CODE:-000}"
+  {
+    echo "timestamp=$(date -u +%Y%m%dT%H%M%SZ)"
+    echo "step=${CURRENT_STEP}"
+    echo "notify_http_code=${HTTP_CODE:-000}"
+    echo "project=${PROJECT:-}"
+    echo "tmux_target=${TMUX_TARGET:-}"
+  } >> "${DEBUG_DIR}/stop-hook-last-error.log" 2>/dev/null || true
+fi
 
 exit 0

@@ -27,8 +27,8 @@ const hubAllowedOrigins = new Set(
 )
 const hubPersistRaw = ['1', 'true', 'yes', 'on'].includes(String(process.env.HUB_PERSIST_RAW || '').toLowerCase())
 const hubPersistToolInput = ['1', 'true', 'yes', 'on'].includes(String(process.env.HUB_PERSIST_TOOL_INPUT || '').toLowerCase())
-const groqApiKey = String(process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || '').trim()
-const groqModelDefault = String(process.env.GROQ_MODEL || process.env.VITE_GROQ_MODEL || 'whisper-large-v3').trim()
+const groqApiKey = String(process.env.GROQ_API_KEY || '').trim()
+const groqModelDefault = String(process.env.GROQ_MODEL || 'whisper-large-v3').trim()
 const notificationsFile = path.join(dataDir, 'notifications.jsonl')
 const repliesFile = path.join(dataDir, 'replies.jsonl')
 const clientEventsFile = path.join(dataDir, 'client-events.jsonl')
@@ -758,6 +758,11 @@ const server = createServer(async (req, res) => {
       pendingApprovals: approvals.filter((a) => a.status === 'pending').length,
       now: new Date().toISOString(),
     })
+  }
+
+  if (method === 'GET' && pathname === '/api/auth-check') {
+    if (!requireApiAuth(req, res)) return
+    return sendJson(res, 200, { ok: true })
   }
 
   if (method === 'POST' && pathname === '/api/hooks/permission-request') {
