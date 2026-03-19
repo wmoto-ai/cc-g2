@@ -356,6 +356,28 @@ run_internal_command() {
       fi
       exit 0
       ;;
+    find-session)
+      local work_dir=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --workdir) work_dir="$2"; shift 2 ;;
+          *) error "Unknown find-session arg: $1"; exit 1 ;;
+        esac
+      done
+      [ -n "$work_dir" ] || { error "find-session requires --workdir"; exit 1; }
+      local base_name
+      base_name="$(make_tmux_session_name "$work_dir")"
+      # Pick the latest session matching base_name (highest suffix wins)
+      local found=""
+      found=$(tmux list-sessions -F '#{session_name}' 2>/dev/null \
+        | grep "^${base_name}\(-[0-9]*\)\{0,1\}$" | sort -V | tail -1)
+      if [ -n "$found" ]; then
+        json_out --arg sessionName "$found" '{ok:true,exists:true,sessionName:$sessionName}'
+      else
+        json_out '{ok:true,exists:false}'
+      fi
+      exit 0
+      ;;
   esac
 }
 

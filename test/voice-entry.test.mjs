@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -91,6 +91,21 @@ case "$cmd" in
       node -e 'console.log(JSON.stringify({ok:true, exists:false, sessionName:process.argv[1]}))' "$session"
     fi
     ;;
+  find-session)
+    workdir=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --workdir) workdir="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    base=$(basename "$workdir")
+    if [ -f "$STATE_DIR/continue-ok" ]; then
+      node -e 'console.log(JSON.stringify({ok:true, exists:true, sessionName:process.argv[1]}))' "g2-$base-stub"
+    else
+      node -e 'console.log(JSON.stringify({ok:true, exists:false}))'
+    fi
+    ;;
   launch-detached)
     workdir=""
     prompt=""
@@ -147,8 +162,12 @@ const chooseCandidate = (suffix) => {
 }
 if (textOutput) {
   const recent = readRecentSession()
-  if (prompt.includes('続けて') && recent?.workdir) {
-    process.stdout.write(JSON.stringify({ mode: 'continue_latest', workdir: recent.workdir, prompt: '続けてログ見て' }))
+  const spoken = prompt.split(/\\n/).find((l) => l.startsWith('spoken_request: '))?.slice('spoken_request: '.length) || ''
+  if (prompt.includes('続けて')) {
+    const candidates = ['alpha-tool', 'beta-tool']
+    const mentioned = candidates.find((c) => spoken.includes(c))
+    const target = mentioned ? chooseCandidate(mentioned) : (recent?.workdir || '')
+    process.stdout.write(JSON.stringify({ mode: 'continue_latest', workdir: target, prompt: '続けて' }))
   } else {
     const alpha = chooseCandidate('alpha-tool')
     process.stdout.write(JSON.stringify({ mode: 'start', workdir: alpha, prompt: 'alpha の修正して' }))
@@ -252,8 +271,77 @@ exec ${JSON.stringify(process.execPath)} ${JSON.stringify(claudeStub)} "$@"
     })
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(extractContent(data)).toContain('直前のClaude Codeセッションに続けて依頼しました')
+    expect(extractContent(data)).toContain('既存のClaude Codeセッションに続けて依頼しました')
     expect(extractContent(data)).toContain('beta-tool')
+  })
+
+  it('continues session for selector-chosen workdir even when lastSession differs', async () => {
+    // lastSession points to alpha-tool, but user asks to continue in beta-tool
+    await writeFile(
+      lastSessionFile,
+      JSON.stringify(
+        {
+          sessionName: 'g2-alpha-tool-stub',
+          workdir: path.join(repoRoot, 'alpha-tool'),
+          prompt: '前回の依頼',
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    )
+    await writeFile(path.join(stateDir, 'continue-ok'), '1', 'utf8')
+
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TEST_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openclaw',
+        messages: [{ role: 'user', content: 'beta-toolで続けて' }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(extractContent(data)).toContain('既存のClaude Codeセッションに続けて依頼しました')
+    expect(extractContent(data)).toContain('beta-tool')
+  })
+
+  it('starts new session when continue requested but no session exists for workdir', async () => {
+    await writeFile(
+      lastSessionFile,
+      JSON.stringify(
+        {
+          sessionName: 'g2-alpha-tool-stub',
+          workdir: path.join(repoRoot, 'alpha-tool'),
+          prompt: '前回の依頼',
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    )
+    // Ensure continue-ok does not exist — find-session will return exists:false
+    try { await unlink(path.join(stateDir, 'continue-ok')) } catch {}
+
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TEST_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openclaw',
+        messages: [{ role: 'user', content: 'beta-toolで続けてお願い' }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(extractContent(data)).toContain('新しいClaude Codeセッションを開始しました')
   })
 
   it('deduplicates identical requests sent within the dedup window', async () => {

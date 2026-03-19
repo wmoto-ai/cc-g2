@@ -3,6 +3,7 @@ node_modules/
 dist/
 tmp/
 plan/
+CLAUDE.md
 
 # Local env (Vite)
 .env
@@ -11,3 +12,7 @@ plan/
 
 # Claude Code local settings
 .claude/settings.local.json
+.claude/skills/
+
+# Local agents / skills
+.agents/

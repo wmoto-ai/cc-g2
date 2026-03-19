@@ -8,7 +8,7 @@ import { formatForG2Display } from './g2-format'
 import { appConfig, canUseGroqStt, createHubHeaders } from './config'
 import { getWebSpeechSupport, startWebSpeechCapture, type WebSpeechSession } from './stt/webspeech'
 import { createNotificationClient, type NotificationDetail, type NotificationItem } from './notifications'
-import { G2_EVENT, isDoubleTapEventType, isTapEventType, normalizeHubEvent } from './even-events'
+import { G2_EVENT, getNormalizedEventType, isDoubleTapEventType, isTapEventType, normalizeHubEvent } from './even-events'
 
 const appRoot = document.querySelector<HTMLDivElement>('#app')!
 const uiSearch = new URLSearchParams(globalThis.location?.search || '')
@@ -554,7 +554,7 @@ function startNotificationPolling() {
     // 描画中はスキップ（SDK呼び出し衝突防止）
     if (glassesUI.isRendering()) return
     try {
-      const items = await notifClient.list(10)
+      const items = await notifClient.list(20)
       hubReachable = true
       lastNotifRefreshAt = Date.now()
       const toKey = (list: NotificationItem[]) => list.map((i) => `${i.id}:${i.replyStatus ?? ''}`).join(',')
@@ -632,8 +632,8 @@ function updateNotifInfo() {
     infoEl.textContent = [
       `[詳細] ${d.title}`,
       `Source: ${d.source} | replyCapable: ${d.replyCapable}`,
-      `Page: ${notifState.detailPageIndex + 1}/${notifState.detailPages.length}`,
-      `操作: Up/Down=ページ, DblClick=戻る${replyHint}`,
+      `Chunk: ${notifState.detailPageIndex + 1}/${notifState.detailPages.length} (firmware scroll)`,
+      `操作: FW自動スクロール, 境界到達→チャンク切替, DblClick=戻る${replyHint}`,
       '',
       notifState.detailPages[notifState.detailPageIndex] ?? '',
     ].join('\n')
@@ -657,7 +657,7 @@ document.getElementById('notif-fetch-btn')!.addEventListener('click', async () =
   const statusEl = document.getElementById('notif-status')!
   statusEl.textContent = '取得中...'
   try {
-    const items = await notifClient.list(10)
+    const items = await notifClient.list(20)
     hubReachable = true
     lastNotifRefreshAt = Date.now()
     notifState.items = items
@@ -692,7 +692,7 @@ async function returnToListFromResult() {
   notifState.selectedIndex = 0
   if (connection) {
     try {
-      notifState.items = await notifClient.list(10)
+      notifState.items = await notifClient.list(20)
     } catch { /* fallback to cached */ }
     await glassesUI.showNotificationList(connection, notifState.items)
   }
@@ -705,6 +705,15 @@ function clearPendingNotifEvent() {
   if (pendingNotifEventFlushTimer) {
     clearTimeout(pendingNotifEventFlushTimer)
     pendingNotifEventFlushTimer = null
+  }
+}
+
+/** キュー中のイベントがスクロールの場合のみクリアする（tap/doubleTap等は保持） */
+function clearPendingScrollEvent() {
+  if (!pendingNotifEvent) return
+  const eventType = getNormalizedEventType(pendingNotifEvent)
+  if (eventType === G2_EVENT.SCROLL_TOP || eventType === G2_EVENT.SCROLL_BOTTOM) {
+    clearPendingNotifEvent()
   }
 }
 
@@ -858,12 +867,15 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           try {
             const detail = await notifClient.detail(item.id)
             notifState.detailItem = detail
-            notifState.detailPages = []
             const pageCount = glassesUI.getDetailPageCount(detail.fullText)
-            for (let i = 0; i < pageCount; i++) notifState.detailPages.push('')
+            notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
             notifState.detailPageIndex = 0
             notifState.screen = 'detail'
             await glassesUI.showNotificationDetail(connection!, detail, 0, pageCount, getContextPctForNotification(detail))
+            // 描画中（createStartUpフォールバックで数秒かかる）にキューされたスクロールイベントを破棄
+            // tap/doubleTap等の非スクロールイベントは保持する
+            clearPendingScrollEvent()
+            lastDetailScrollAt = Date.now()
             updateNotifInfo()
           } catch (err) {
             log(`通知詳細取得失敗: ${err instanceof Error ? err.message : String(err)}`)
@@ -872,7 +884,10 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
       } else if (notifState.screen === 'detail') {
         // 詳細画面: スクロールでページ送り＋画面遷移
         if (!notifState.detailItem) return
-        const pageCount = glassesUI.getDetailPageCount(notifState.detailItem.fullText)
+        // ghostリストコンテナからのイベントを無視（detail画面ではtextEventとsysEventのみ有効）
+        if (normalized.source === 'list') return
+        // detailPages は showNotificationDetail() で都度算出される（ここでは長さのみ参照）
+        const pageCount = notifState.detailPages.length
         if (isDoubleTapEventType(eventType)) {
           log('通知詳細: double tap → リストに戻る')
           notifState.screen = 'list'
@@ -893,6 +908,9 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             await glassesUI.showNotificationDetail(
               connection!, notifState.detailItem, notifState.detailPageIndex, pageCount, getContextPctForNotification(notifState.detailItem),
             )
+            // 描画完了後にスクロールイベントのみクリア＋クールダウン更新（誤発火を防止）
+            clearPendingScrollEvent()
+            lastDetailScrollAt = Date.now()
           } else {
             log('通知詳細: 最初のページ → リストに戻る')
             notifState.screen = 'list'
@@ -911,6 +929,9 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             await glassesUI.showNotificationDetail(
               connection!, notifState.detailItem, notifState.detailPageIndex, pageCount, getContextPctForNotification(notifState.detailItem),
             )
+            // 描画完了後にスクロールイベントのみクリア＋クールダウン更新（誤発火を防止）
+            clearPendingScrollEvent()
+            lastDetailScrollAt = Date.now()
           } else if (notifState.detailItem.replyCapable) {
             log('通知詳細: 最終ページ → アクションメニュー')
             notifState.screen = 'detail-actions'

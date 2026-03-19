@@ -568,6 +568,16 @@ async function sessionExists(sessionName) {
   }
 }
 
+async function findSessionForWorkdir(workdir) {
+  if (!workdir) return null
+  try {
+    const result = await runCcG2Command(['find-session', '--workdir', workdir])
+    return result?.exists ? result.sessionName : null
+  } catch {
+    return null
+  }
+}
+
 function launchCcG2Session(prompt, workdir) {
   return runCcG2Command(['launch-detached', '--workdir', workdir, '--prompt', prompt])
 }
@@ -692,25 +702,25 @@ const server = http.createServer((req, res) => {
 
       if (VOICE_ENTRY_MODE === 'session-entry') {
         const target = await resolveLaunchTarget(userText)
-        const lastSession = readLastSession()
-        let canContinue =
-          target.mode === 'continue_latest' &&
-          lastSession &&
-          typeof lastSession.sessionName === 'string' &&
-          typeof lastSession.workdir === 'string' &&
-          (await sessionExists(lastSession.sessionName))
+
+        // continue_latest: find an existing session for the selector-chosen workdir
+        let continueSessionName = null
+        if (target.mode === 'continue_latest') {
+          continueSessionName = await findSessionForWorkdir(target.workdir)
+        }
 
         let launch
-        if (canContinue) {
+        let canContinue = false
+        if (continueSessionName) {
           try {
-            launch = await continueCcG2Session(target.prompt, lastSession.sessionName)
+            launch = await continueCcG2Session(target.prompt, continueSessionName)
+            canContinue = true
           } catch (error) {
-            canContinue = false
             appendLog({
               type: 'session_continue_error',
               userText,
               message: error instanceof Error ? error.message : String(error),
-              sessionName: lastSession.sessionName,
+              sessionName: continueSessionName,
             })
           }
         }
@@ -718,10 +728,10 @@ const server = http.createServer((req, res) => {
           launch = await launchCcG2Session(target.prompt, target.workdir)
         }
 
-        const effectiveWorkdir = canContinue ? lastSession.workdir : target.workdir
-        const effectiveSessionName = launch.sessionName || lastSession?.sessionName || ''
+        const effectiveWorkdir = target.workdir
+        const effectiveSessionName = launch.sessionName || continueSessionName || ''
         const content = canContinue
-          ? `直前のClaude Codeセッションに続けて依頼しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
+          ? `既存のClaude Codeセッションに続けて依頼しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
           : `新しいClaude Codeセッションを開始しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
 
         writeLastSession({

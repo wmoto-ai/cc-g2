@@ -9,9 +9,10 @@
             "url": "http://127.0.0.1:8787/api/hooks/permission-request",
             "timeout": 310,
             "headers": {
-              "X-Tmux-Target": "$CC_G2_TMUX_TARGET"
+              "X-Tmux-Target": "$CC_G2_TMUX_TARGET",
+              "X-CC-G2-Token": "$HUB_AUTH_TOKEN"
             },
-            "allowedEnvVars": ["CC_G2_TMUX_TARGET"]
+            "allowedEnvVars": ["CC_G2_TMUX_TARGET", "HUB_AUTH_TOKEN"]
           }
         ]
       }

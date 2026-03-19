@@ -597,15 +597,15 @@ function buildToolPreview(toolName, toolInput) {
     return toolInput?.command || ''
   } else if (toolName === 'Edit') {
     const file = toolInput?.file_path || ''
-    const old = (toolInput?.old_string || '').slice(0, 200)
-    const new_ = (toolInput?.new_string || '').slice(0, 200)
+    const old = (toolInput?.old_string || '').slice(0, 2000)
+    const new_ = (toolInput?.new_string || '').slice(0, 2000)
     return `${file}\n--- old ---\n${old}\n+++ new +++\n${new_}`
   } else if (toolName === 'Write') {
     const file = toolInput?.file_path || ''
-    const content = (toolInput?.content || '').slice(0, 300)
+    const content = (toolInput?.content || '').slice(0, 2000)
     return `${file}\n${content}`
   } else {
-    return JSON.stringify(toolInput || {}).slice(0, 300)
+    return JSON.stringify(toolInput || {}).slice(0, 2000)
   }
 }
 

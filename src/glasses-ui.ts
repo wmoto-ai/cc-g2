@@ -39,21 +39,51 @@ export type NotificationUIState = {
   replyText: string
 }
 
-/** G2表示用: fullTextをページ分割する（約6行×22文字/行 ≒ 132文字/ページ） */
-function paginateText(text: string, charsPerPage = 130): string[] {
-  if (!text) return ['（本文なし）']
+/**
+ * G2表示用: fullTextをチャンク分割する（UTF-8バイト数基準）。
+ * ファームウェアがコンテナ内テキストの自動スクロールを処理するため、
+ * 1チャンクを maxBytes UTF-8バイト以内に収める。
+ * SDKの文字数制限はUTF-8バイト基準（日本語3bytes/文字のため
+ * コードポイント数では正確に制御できない）。
+ * SCROLL_TOP/SCROLL_BOTTOM イベントはチャンク境界でのみ発火される。
+ *
+ * コードポイント単位で走査しサロゲートペア安全。
+ * 本文のインデントや空白は保持する（全体のtrimのみ）。
+ */
+const textEncoder = new TextEncoder()
+
+export function paginateText(text: string, maxBytes = 999): string[] {
+  const normalized = text?.replace(/\r\n/g, '\n').trim() ?? ''
+  if (!normalized) return ['（本文なし）']
+
+  const chars = Array.from(normalized)
   const pages: string[] = []
   let pos = 0
-  while (pos < text.length) {
-    let end = pos + charsPerPage
-    // 単語/行の途中で切らないよう、改行位置で調整
-    if (end < text.length) {
-      const lastNewline = text.lastIndexOf('\n', end)
-      if (lastNewline > pos) end = lastNewline + 1
+
+  while (pos < chars.length) {
+    let end = pos
+    let byteCount = 0
+    while (end < chars.length) {
+      const charBytes = textEncoder.encode(chars[end]).length
+      if (byteCount + charBytes > maxBytes) break
+      byteCount += charBytes
+      end++
     }
-    pages.push(text.slice(pos, end).trim())
+    if (end === pos) end = pos + 1 // 1文字がmaxBytesを超える場合は最低1文字進める
+
+    // 改行位置でチャンクを切る（改行なしの場合はバイト上限で強制カット）
+    if (end < chars.length) {
+      for (let i = end - 1; i > pos; i--) {
+        if (chars[i] === '\n') {
+          end = i + 1
+          break
+        }
+      }
+    }
+    pages.push(chars.slice(pos, end).join(''))
     pos = end
   }
+
   return pages.length > 0 ? pages : ['（本文なし）']
 }
 
@@ -430,8 +460,14 @@ export function createGlassesUI() {
     },
 
     /**
-     * G2に通知詳細を表示する（ページ送り対応）
-     * Up/Down: ページ送り
+     * G2に通知詳細を表示する（ファームウェアスクロール対応）
+     *
+     * fullTextをUTF-8バイト基準（デフォルト999bytes）でチャンク分割し、
+     * ファームウェアがコンテナ内テキストの自動スクロールを処理する。
+     * SCROLL_TOP/SCROLL_BOTTOM イベントはチャンク境界到達時のみアプリに通知される。
+     *
+     * 既にnotif-detailレイアウトの場合は textContainerUpgrade でテキストだけ更新する。
+     * レイアウト変更が必要な場合は createStartUp/rebuild で描画する。
      */
     async showNotificationDetail(
       conn: BridgeConnection,
@@ -475,12 +511,14 @@ export function createGlassesUI() {
           }),
         )
         if (h && b) {
-          log(`G2に通知詳細表示: "${detail.title}" page=${pageIndex + 1}/${pages.length}`)
+          log(`G2に通知詳細表示: "${detail.title}" chunk=${pageIndex + 1}/${pages.length} (${bodyText.length}chars, firmware scroll)`)
           return
         }
         log('G2 textContainerUpgrade に失敗 → ページ再描画へフォールバック')
       }
 
+      // paginateText() のデフォルト maxBytes=999 により、各チャンクは
+      // UTF-8で999バイト以内に収まっている（SDK上限 <1000 bytes）
       const headerContainer = new TextContainerProperty({
         xPosition: 8,
         yPosition: 4,
@@ -526,10 +564,10 @@ export function createGlassesUI() {
         targetLayout: 'notif-detail',
       })
       layoutByBridge.set(bridgeKeyOf(conn), 'notif-detail')
-      log(`G2に通知詳細表示: "${detail.title}" page=${pageIndex + 1}/${pages.length}`)
+      log(`G2に通知詳細表示: "${detail.title}" chunk=${pageIndex + 1}/${pages.length} (${bodyText.length}chars, firmware scroll)`)
     },
 
-    /** fullTextのページ数を返す */
+    /** fullTextのチャンク数を返す（各チャンクUTF-8で最大999bytes、ファームウェアスクロール） */
     getDetailPageCount(fullText: string): number {
       return paginateText(fullText).length
     },
