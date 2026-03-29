@@ -294,6 +294,7 @@ cc-g2/
 
 - まず `cc-g2 doctor` で依存関係と Hub / Vite の状態を確認
 - 調子が悪いときは `cc-g2 !` でインフラを再起動
+- **PC 再起動後は `cc-g2 !` が必要**: Hub や Voice Entry のトークンが不整合になるため、PC 再起動後は必ず `cc-g2 !` で再起動してください
 - Approval Dashboard を開く場合は `TOKEN=$(cat tmp/notification-hub/hub-auth-token)` の後に `http://127.0.0.1:8787/ui?token=${TOKEN}` を使います
 - **Voice entry が起動しない**: `cc-g2 status` で確認。`.env.local` に `CC_G2_VOICE_ENTRY_ENABLED=0` が設定されていないか確認し、`cc-g2 !` で再起動
 - **Even App から接続できない**: `cat tmp/voice-entry/voice-entry-token` でトークンを確認。Even App の Bearer トークンと一致しているか、Tailscale で iPhone → Mac に到達できるかも確認

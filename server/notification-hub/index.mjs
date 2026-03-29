@@ -80,6 +80,8 @@ const approvalsById = new Map()
 const approvalsByNotificationId = new Map()
 /** @type {Map<string, number>} */
 const uiSessions = new Map()
+/** @type {{lat:number,lng:number,altitude:number|null,timestamp:string,speed:number|null,battery:number|null,receivedAt:string}|null} */
+let lastLocation = null
 const approvalsFile = path.join(dataDir, 'approvals.jsonl')
 const UI_SESSION_COOKIE = 'cc_g2_ui_session'
 const UI_SESSION_MAX_AGE_SEC = 60 * 60 * 12
@@ -227,6 +229,7 @@ function isPublicApiRequest(method, pathname) {
   if (method === 'GET' && pathname === '/api/context-status') return true
   if (method === 'GET' && pathname === '/api/notifications') return true
   if (method === 'POST' && pathname === '/api/client-events') return true
+  if (method === 'POST' && pathname === '/api/location') return true
   if (method === 'GET' && matchNotificationDetail(pathname)) return true
   return false
 }
@@ -448,14 +451,17 @@ async function createApproval(params) {
   const title = titleOverride || toolName
   const fullText = bodyOverride || lines.join('\n')
 
+  const callerHookType = (extraMeta && typeof extraMeta.hookType === 'string')
+    ? extraMeta.hookType
+    : 'permission-request'
   const notifPayload = {
     title,
     body: fullText,
-    hookType: 'permission-request',
+    hookType: callerHookType,
     threadId: incomingThreadId || undefined,
     metadata: {
       ...extraMeta,
-      hookType: 'permission-request',
+      hookType: callerHookType,
       approvalId,
       externalId: `approval:${approvalId}`,
       source: `${agentName}-approval-broker`,
@@ -646,7 +652,25 @@ async function handlePermissionRequestHook(req, res) {
   const sessionId = getString(p.session_id)
 
   const title = toolName
-  const preview = buildToolPreview(toolName, toolInput)
+  let preview = buildToolPreview(toolName, toolInput)
+
+  // AskUserQuestion: questions metadata を追加し、プレビューを整形
+  const isAskQ = toolName === 'AskUserQuestion' && Array.isArray(toolInput.questions)
+  const extraMeta = {}
+  if (isAskQ) {
+    const previewLines = []
+    for (const q of toolInput.questions) {
+      previewLines.push(q.question || '')
+      if (Array.isArray(q.options)) {
+        for (const opt of q.options) {
+          previewLines.push(`  • ${opt.label}: ${opt.description || ''}`)
+        }
+      }
+    }
+    preview = previewLines.join('\n')
+    extraMeta.hookType = 'ask-user-question'
+    extraMeta.questions = toolInput.questions
+  }
 
   const projectSlug = path.basename(cwd || '').replace(/[^a-zA-Z0-9_-]/g, '_')
   const sessionSlug = (sessionId || '').replace(/[^a-zA-Z0-9_-]/g, '_')
@@ -663,6 +687,7 @@ async function handlePermissionRequestHook(req, res) {
     body: preview,
     threadId,
     metadata: {
+      ...extraMeta,
       tmuxTarget,
       sessionLabel: deriveSessionLabel(tmuxTarget),
       sessionId,
@@ -769,6 +794,7 @@ const server = createServer(async (req, res) => {
     return handlePermissionRequestHook(req, res)
   }
 
+
   if (method === 'POST' && pathname === '/api/notify/moshi') {
     const rawBody = await readRequestBody(req, { maxBytes: hubMaxBodyBytes })
     const ctype = req.headers['content-type'] || ''
@@ -820,6 +846,53 @@ const server = createServer(async (req, res) => {
     }
     await appendJsonl(clientEventsFile, line)
     return sendJson(res, 201, { ok: true })
+  }
+
+  // --- 位置情報 (Overland / 汎用 GPS ロガー対応) ---
+
+  if (method === 'POST' && pathname === '/api/location') {
+    const rawBody = await readRequestBody(req, { maxBytes: hubMaxBodyBytes })
+    const parsed = safeJsonParse(rawBody || '{}')
+    if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') {
+      return sendJson(res, 400, { ok: false, error: 'Invalid JSON body' })
+    }
+    const p = parsed.value
+    // Overland GeoJSON format: { locations: [{ geometry: { coordinates: [lng, lat] }, properties: { timestamp, ... } }] }
+    const locations = Array.isArray(p.locations) ? p.locations : []
+    if (locations.length > 0) {
+      const latest = locations[locations.length - 1]
+      const coords = latest?.geometry?.coordinates
+      if (!Array.isArray(coords) || coords.length < 2) {
+        return sendJson(res, 400, { ok: false, error: 'Invalid coordinates array' })
+      }
+      const lat = Number(coords[1])
+      const lng = Number(coords[0])
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return sendJson(res, 400, { ok: false, error: 'Invalid latitude/longitude values' })
+      }
+      const alt = coords.length >= 3 ? Number(coords[2]) : NaN
+      const props = latest.properties && typeof latest.properties === 'object' ? latest.properties : {}
+      const spd = Number(props.speed)
+      const bat = Number(props.battery_level)
+      lastLocation = {
+        lat,
+        lng,
+        altitude: Number.isFinite(alt) ? alt : null,
+        timestamp: String(props.timestamp || '') || new Date().toISOString(),
+        speed: Number.isFinite(spd) ? spd : null,
+        battery: Number.isFinite(bat) ? bat : null,
+        receivedAt: new Date().toISOString(),
+      }
+      log(`location updated: lat=${lastLocation.lat} lng=${lastLocation.lng}`)
+    }
+    return sendJson(res, 200, { ok: true })
+  }
+
+  if (method === 'GET' && pathname === '/api/location') {
+    if (!lastLocation) {
+      return sendJson(res, 200, { ok: true, location: null, message: 'No location data received yet' })
+    }
+    return sendJson(res, 200, { ok: true, location: lastLocation })
   }
 
   if (method === 'POST' && pathname === '/api/stt/transcriptions') {
@@ -905,15 +978,34 @@ const server = createServer(async (req, res) => {
       const comment = getString(parsed.value.comment)
       const source = getString(parsed.value.source)
 
-      const validActions = new Set(['approve', 'deny', 'comment'])
+      // answerData バリデーション: plain object, キー/値とも string, 上限付き
+      let answerData = undefined
+      if (parsed.value.answerData && typeof parsed.value.answerData === 'object' && !Array.isArray(parsed.value.answerData)) {
+        const entries = Object.entries(parsed.value.answerData)
+        if (entries.length <= 10 && entries.every(([k, v]) => typeof k === 'string' && typeof v === 'string' && k.length <= 2000 && v.length <= 2000)) {
+          answerData = parsed.value.answerData
+        }
+      }
+
+      const validActions = new Set(['approve', 'deny', 'comment', 'answer'])
       if (action && !validActions.has(action)) {
         return sendJson(res, 400, { ok: false, error: 'Invalid `action`' })
+      }
+      if (action === 'answer') {
+        if (!answerData) {
+          return sendJson(res, 400, { ok: false, error: '`answerData` is required for action=answer' })
+        }
+        const isAskQ = item.metadata && item.metadata.hookType === 'ask-user-question'
+        if (!isAskQ) {
+          return sendJson(res, 400, { ok: false, error: 'action=answer is only valid for ask-user-question notifications' })
+        }
       }
 
       const replyText =
         replyTextRaw ||
         (action === 'approve' ? '[ACTION] approve' : '') ||
         (action === 'deny' ? '[ACTION] deny' : '') ||
+        (action === 'answer' ? '[ACTION] answer' : '') ||
         (action === 'comment' ? comment : '') ||
         ''
       if (!replyText) {
@@ -938,7 +1030,9 @@ const server = createServer(async (req, res) => {
         source: source || undefined,
       }
       let linkedApproval = approvalsByNotificationId.get(id)
+      const isAskUserQuestion = item.metadata && item.metadata.hookType === 'ask-user-question'
       const isApprovalNotification =
+        isAskUserQuestion ||
         (item.metadata && item.metadata.hookType === 'permission-request') ||
         (item.metadata && item.metadata.approvalId)
       let shouldRelay = true
@@ -991,9 +1085,22 @@ const server = createServer(async (req, res) => {
         }
       }
       if (linkedApproval && linkedApproval.status === 'pending') {
+        // AskUserQuestion の回答: deny+コメントとして返す（PermissionRequest経由でClaude Codeに届く）
+        if (action === 'answer' && answerData && isAskUserQuestion) {
+          linkedApproval.answerData = answerData
+          const answerPairs = Object.entries(answerData).map(([q, a]) => `${q} → ${a}`)
+          const answerComment = `選択回答: ${answerPairs.join(' / ')}`
+          record.resolvedAction = 'deny'
+          record.result = 'resolved'
+          resolveApproval(linkedApproval.id, 'deny', answerComment, source || 'g2')
+          log(`ask-user-question answered id=${linkedApproval.id} answers=${JSON.stringify(answerData)}`)
+          shouldRelay = false
+        }
         // Resolve approval: explicit approve/deny actions, or parse comment text
         let resolvedAction = null
-        if (action === 'approve' || action === 'deny') {
+        if (action === 'answer') {
+          // already handled above
+        } else if (action === 'approve' || action === 'deny') {
           resolvedAction = action
         } else if (action === 'comment' || !action) {
           // G2 sends comments (not explicit approve/deny buttons).
@@ -1214,6 +1321,8 @@ const server = createServer(async (req, res) => {
         '',
         'GET  /ui                         (approval dashboard)',
         'POST /api/client-events          (frontend event log intake)',
+        'POST /api/location               (receive GPS from Overland/etc)',
+        'GET  /api/location               (get latest GPS location)',
       ].join('\n'),
     )
   }

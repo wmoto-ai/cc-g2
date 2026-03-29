@@ -47,9 +47,11 @@ export type NotificationReplyResponse = {
 }
 
 export type NotificationReplyRequest = {
-  action: 'approve' | 'deny' | 'comment'
+  action: 'approve' | 'deny' | 'comment' | 'answer'
   comment?: string
   source?: 'g2' | 'web'
+  /** AskUserQuestion の回答データ: { "質問テキスト": "選択ラベル" } */
+  answerData?: Record<string, string>
 }
 
 export function createNotificationClient(baseUrl: string) {
@@ -87,6 +89,7 @@ export function createNotificationClient(baseUrl: string) {
               action: reply.action,
               comment: reply.comment,
               source: reply.source,
+              answerData: reply.answerData,
             }
       return fetchJson<NotificationReplyResponse>(
         `/api/notifications/${encodeURIComponent(id)}/reply`,

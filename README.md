@@ -179,6 +179,13 @@ pnpm run test:all
 pnpm test:watch
 ```
 
+## Troubleshooting
+
+- Run `cc-g2 doctor` to check dependencies and service health
+- **After a PC restart, run `cc-g2 !`** to restart all services — Hub and Voice Entry tokens can get out of sync after a reboot
+- If Voice Entry won't start: check `cc-g2 status` and make sure `CC_G2_VOICE_ENTRY_ENABLED=0` is not set in `.env.local`
+- If Even App can't connect: verify the Bearer token with `cat tmp/voice-entry/voice-entry-token` and check Tailscale connectivity
+
 ## Links
 
 - [Known limitations](docs/known-limitations.md)

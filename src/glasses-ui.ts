@@ -26,9 +26,17 @@ type ApprovalRequest = {
   options: string[]
 }
 
+/** AskUserQuestion の質問データ（Hub metadata から取得） */
+export type AskQuestionData = {
+  question: string
+  header: string
+  options: Array<{ label: string; description: string }>
+  multiSelect: boolean
+}
+
 /** G2ディスプレイ上の通知UIの状態 */
 export type NotificationUIState = {
-  screen: 'idle' | 'list' | 'detail' | 'detail-actions' | 'reply-recording' | 'reply-confirm' | 'reply-sending'
+  screen: 'idle' | 'list' | 'detail' | 'detail-actions' | 'ask-question' | 'reply-recording' | 'reply-confirm' | 'reply-sending'
   items: NotificationItem[]
   selectedIndex: number
   /** detail画面のページ送り用（fullTextを複数ページに分割） */
@@ -37,6 +45,12 @@ export type NotificationUIState = {
   detailItem: NotificationDetail | null
   /** 返信用STT結果テキスト */
   replyText: string
+  /** AskUserQuestion: 現在表示中の質問データ */
+  askQuestions: AskQuestionData[]
+  /** AskUserQuestion: 現在の質問インデックス（複数質問対応） */
+  askQuestionIndex: number
+  /** AskUserQuestion: 回答の蓄積 { "質問テキスト": "選択ラベル" } */
+  askAnswers: Record<string, string>
 }
 
 /**
@@ -195,7 +209,7 @@ function formatCurrentDateTime(now = new Date()): string {
 export function createGlassesUI() {
   // The host treats startup-page creation as one-time init; later UI changes should use rebuild.
   const startupRenderedBridges = new WeakSet<object>()
-  const layoutByBridge = new WeakMap<object, 'base' | 'text' | 'idle-launcher' | 'approval' | 'notif-list' | 'notif-detail' | 'notif-actions' | 'reply-recording' | 'reply-confirm' | 'reply-result'>()
+  const layoutByBridge = new WeakMap<object, 'base' | 'text' | 'idle-launcher' | 'approval' | 'notif-list' | 'notif-detail' | 'notif-actions' | 'ask-question' | 'reply-recording' | 'reply-confirm' | 'reply-result'>()
   const bridgeKeyOf = (conn: BridgeConnection) => conn.bridge as unknown as object
 
   // 描画ロック: SDK呼び出しの同時実行を防ぐ（実機で衝突するとG2が固まる）
@@ -618,6 +632,64 @@ export function createGlassesUI() {
       })
       layoutByBridge.set(bridgeKeyOf(conn), 'notif-actions')
       log(`G2に通知アクション表示: "${detail.title}"`)
+    },
+
+    /**
+     * AskUserQuestion の選択肢をG2に表示する
+     * 質問テキスト + 選択肢リスト（ListContainer）
+     */
+    async showAskUserQuestion(
+      conn: BridgeConnection,
+      questionData: AskQuestionData,
+      questionIndex: number,
+      totalQuestions: number,
+    ): Promise<void> {
+      if (!conn.bridge) {
+        log(`[Mock] G2 AskUserQuestion: "${questionData.question}"`)
+        return
+      }
+
+      const qNum = totalQuestions > 1 ? `[${questionIndex + 1}/${totalQuestions}] ` : ''
+      const headerText = `${qNum}${questionData.question}`
+
+      const optionLabels = questionData.options.map((o) => o.label)
+      // 「その他」(音声入力) と「◀ 戻る」を追加
+      optionLabels.push('その他（音声）', '◀ 戻る')
+
+      const headerContainer = new TextContainerProperty({
+        xPosition: 8,
+        yPosition: 4,
+        width: 560,
+        height: 52,
+        containerID: 1,
+        containerName: 'ask-q-hdr',
+        content: headerText,
+        isEventCapture: 0,
+      })
+
+      const listContainer = new ListContainerProperty({
+        xPosition: 8,
+        yPosition: 58,
+        width: 560,
+        height: 210,
+        containerID: 2,
+        containerName: 'ask-q-lst',
+        itemContainer: new ListItemContainerProperty({
+          itemCount: optionLabels.length,
+          itemWidth: 0,
+          isItemSelectBorderEn: 1,
+          itemName: optionLabels,
+        }),
+        isEventCapture: 1,
+      })
+
+      await renderStartupPage(conn, {
+        texts: [headerContainer],
+        lists: [listContainer],
+        targetLayout: 'ask-question',
+      })
+      layoutByBridge.set(bridgeKeyOf(conn), 'ask-question')
+      log(`G2に AskUserQuestion 表示: "${questionData.question}" options=${optionLabels.length}`)
     },
 
     /**
