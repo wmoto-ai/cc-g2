@@ -1,7 +1,7 @@
 import './styles.css'
 import type { EvenHubEvent } from '@evenrealities/even_hub_sdk'
 import { initBridge, type BridgeConnection } from './bridge'
-import { createGlassesUI, type NotificationUIState } from './glasses-ui'
+import { createGlassesUI, type NotificationUIState, type AskQuestionData } from './glasses-ui'
 import { log } from './log'
 import { transcribePcmChunks } from './stt/groq'
 import { formatForG2Display } from './g2-format'
@@ -148,6 +148,7 @@ function screenLabel(screen: NotificationUIState['screen']): string {
     case 'list': return 'list'
     case 'detail': return 'detail'
     case 'detail-actions': return 'actions'
+    case 'ask-question': return 'ask-q'
     case 'reply-recording': return 'recording'
     case 'reply-confirm': return 'confirm'
     case 'reply-sending': return 'sending'
@@ -502,6 +503,23 @@ document.getElementById('mic-stop-btn')!.addEventListener('click', async () => {
   }
 })
 
+// --- AskUserQuestion helpers ---
+function isAskUserQuestionNotification(detail: NotificationDetail): boolean {
+  const meta = detail.metadata
+  return !!(meta && (meta.hookType === 'ask-user-question' || meta.toolName === 'AskUserQuestion'))
+}
+
+function extractAskQuestions(detail: NotificationDetail): AskQuestionData[] {
+  const meta = detail.metadata
+  if (!meta) return []
+  const questions = meta.questions
+  if (!Array.isArray(questions)) return []
+  return questions.filter(
+    (q: unknown): q is AskQuestionData =>
+      !!q && typeof q === 'object' && 'question' in q && 'options' in q && Array.isArray((q as AskQuestionData).options),
+  )
+}
+
 // --- Notifications ---
 const notifState: NotificationUIState = {
   screen: 'idle',
@@ -511,6 +529,9 @@ const notifState: NotificationUIState = {
   detailPageIndex: 0,
   detailItem: null,
   replyText: '',
+  askQuestions: [],
+  askQuestionIndex: 0,
+  askAnswers: {},
 }
 
 let notifEventRegisteredFor: object | null = null // ハンドラ登録済みの connection を追跡
@@ -521,7 +542,7 @@ let pendingListRefresh = false
 
 function canAutoOpenForScreen(screen: NotificationUIState['screen']): boolean {
   // 録音/送信中は割り込まない。他の画面では新着優先で一覧へ寄せる。
-  return screen !== 'reply-recording' && screen !== 'reply-confirm' && screen !== 'reply-sending'
+  return screen !== 'reply-recording' && screen !== 'reply-confirm' && screen !== 'reply-sending' && screen !== 'ask-question'
 }
 
 async function flushPendingNotificationUi(reason: string) {
@@ -643,6 +664,15 @@ function updateNotifInfo() {
       '0=コメント, 1=拒否, 2=承認',
       'Click=選択, DblClick=詳細に戻る',
     ].join('\n')
+  } else if (notifState.screen === 'ask-question') {
+    const q = notifState.askQuestions[notifState.askQuestionIndex]
+    const opts = q ? q.options.map((o, i) => `${i}=${o.label}`).join(', ') : ''
+    infoEl.textContent = [
+      `[質問 ${notifState.askQuestionIndex + 1}/${notifState.askQuestions.length}]`,
+      q?.question ?? '',
+      opts,
+      'Click=選択, DblClick=戻る',
+    ].join('\n')
   } else if (notifState.screen === 'reply-recording') {
     infoEl.textContent = `[返信録音中] ${replyAudioTotalBytes} bytes\nDblClick=停止, Swipe=キャンセル`
   } else if (notifState.screen === 'reply-confirm') {
@@ -690,6 +720,9 @@ async function returnToListFromResult() {
   notifState.detailItem = null
   notifState.replyText = ''
   notifState.selectedIndex = 0
+  notifState.askQuestions = []
+  notifState.askQuestionIndex = 0
+  notifState.askAnswers = {}
   if (connection) {
     try {
       notifState.items = await notifClient.list(20)
@@ -867,6 +900,22 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           try {
             const detail = await notifClient.detail(item.id)
             notifState.detailItem = detail
+
+            // AskUserQuestion: 詳細画面をスキップして選択肢画面へ直接遷移
+            if (isAskUserQuestionNotification(detail)) {
+              const questions = extractAskQuestions(detail)
+              if (questions.length > 0) {
+                notifState.askQuestions = questions
+                notifState.askQuestionIndex = 0
+                notifState.askAnswers = {}
+                notifState.screen = 'ask-question'
+                await glassesUI.showAskUserQuestion(connection!, questions[0], 0, questions.length)
+                clearPendingScrollEvent()
+                updateNotifInfo()
+                return
+              }
+            }
+
             const pageCount = glassesUI.getDetailPageCount(detail.fullText)
             notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
             notifState.detailPageIndex = 0
@@ -1011,6 +1060,106 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             return
           }
         }
+      } else if (notifState.screen === 'ask-question') {
+        // AskUserQuestion 選択肢画面
+        if (!notifState.detailItem) return
+
+        if (isDoubleTapEventType(eventType)) {
+          log('AskUserQuestion: double tap → リストに戻る')
+          notifState.screen = 'list'
+          notifState.detailItem = null
+          notifState.askQuestions = []
+          notifState.askQuestionIndex = 0
+          notifState.askAnswers = {}
+          await glassesUI.showNotificationList(connection!, notifState.items)
+          updateNotifInfo()
+          return
+        }
+
+        if (normalized.source === 'list') {
+          if (normalized.containerName !== 'ask-q-lst') return
+          const index = normalized.index ?? 0
+          const currentQ = notifState.askQuestions[notifState.askQuestionIndex]
+          if (!currentQ) return
+          const optionCount = currentQ.options.length
+          // optionCount+0: 「その他（音声）」, optionCount+1: 「◀ 戻る」
+
+          if (index === optionCount + 1) {
+            // ◀ 戻る
+            log('AskUserQuestion: 戻る → リスト')
+            notifState.screen = 'list'
+            notifState.detailItem = null
+            notifState.askQuestions = []
+            notifState.askQuestionIndex = 0
+            notifState.askAnswers = {}
+            await glassesUI.showNotificationList(connection!, notifState.items)
+            updateNotifInfo()
+            return
+          }
+
+          if (index === optionCount) {
+            // その他（音声入力）→ 録音画面へ
+            log('AskUserQuestion: その他（音声入力）')
+            notifState.screen = 'reply-recording'
+            notifState.replyText = ''
+            replyAudioChunks = []
+            replyAudioTotalBytes = 0
+            replyStopInFlight = false
+            await glassesUI.showReplyRecording(connection!)
+            if (connection!.mode === 'bridge' && !glassesUI.hasRenderedPage(connection!)) {
+              await glassesUI.ensureBasePage(connection!, 'マイク録音中...')
+            }
+            await connection!.startAudio()
+            replyIsRecording = true
+            updateNotifInfo()
+            return
+          }
+
+          if (index < optionCount) {
+            // 選択肢を選んだ
+            const selectedLabel = currentQ.options[index].label
+            notifState.askAnswers[currentQ.question] = selectedLabel
+            log(`AskUserQuestion: 選択 "${selectedLabel}" for "${currentQ.question}"`)
+
+            // 次の質問があるか？
+            if (notifState.askQuestionIndex < notifState.askQuestions.length - 1) {
+              notifState.askQuestionIndex++
+              const nextQ = notifState.askQuestions[notifState.askQuestionIndex]
+              await glassesUI.showAskUserQuestion(connection!, nextQ, notifState.askQuestionIndex, notifState.askQuestions.length)
+              updateNotifInfo()
+              return
+            }
+
+            // 全質問に回答完了 → Hub に送信
+            log(`AskUserQuestion: 全質問回答完了 answers=${JSON.stringify(notifState.askAnswers)}`)
+            notifState.screen = 'reply-sending'
+            updateNotifInfo()
+            try {
+              const res = await notifClient.reply(notifState.detailItem.id, {
+                action: 'answer',
+                answerData: notifState.askAnswers,
+                source: 'g2',
+              })
+              const result = getReplyResultMessage(res)
+              log(`AskUserQuestion: 送信完了 status=${res.reply?.status || 'ok'}`)
+              if (notifState.screen === 'reply-sending') {
+                if (result.ok) {
+                  await glassesUI.showReplyResult(connection!, true, `回答: ${selectedLabel}`)
+                } else {
+                  await glassesUI.showReplyResult(connection!, false, result.message || 'error')
+                }
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err)
+              log(`AskUserQuestion: 送信失敗 ${msg}`)
+              if (notifState.screen === 'reply-sending') {
+                await glassesUI.showReplyResult(connection!, false, msg)
+              }
+            }
+            setTimeout(() => returnToListFromResult(), 3000)
+            return
+          }
+        }
       } else if (notifState.screen === 'reply-recording') {
         // 録音中画面:
         // - 単タップ相当は sysEvent {} とノイズが区別できないため使わない
@@ -1028,10 +1177,16 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           await glassesUI.showReplySttProcessing(connection!)
 
           if (replyAudioTotalBytes === 0) {
-            log('返信録音: 音声データなし → アクションに戻る')
-            notifState.screen = 'detail-actions'
-            if (notifState.detailItem) {
-              await glassesUI.showNotificationActions(connection!, notifState.detailItem)
+            log('返信録音: 音声データなし → 前画面に戻る')
+            if (notifState.detailItem && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
+              notifState.screen = 'ask-question'
+              const q = notifState.askQuestions[notifState.askQuestionIndex]
+              await glassesUI.showAskUserQuestion(connection!, q, notifState.askQuestionIndex, notifState.askQuestions.length)
+            } else {
+              notifState.screen = 'detail-actions'
+              if (notifState.detailItem) {
+                await glassesUI.showNotificationActions(connection!, notifState.detailItem)
+              }
             }
             updateNotifInfo()
             replyStopInFlight = false
@@ -1044,10 +1199,16 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             log(`返信STT完了: provider=${stt.provider} text="${text}"`)
 
             if (!text) {
-              log('返信STT: テキスト空 → アクションに戻る')
-              notifState.screen = 'detail-actions'
-              if (notifState.detailItem) {
-                await glassesUI.showNotificationActions(connection!, notifState.detailItem)
+              log('返信STT: テキスト空 → 前画面に戻る')
+              if (notifState.detailItem && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
+                notifState.screen = 'ask-question'
+                const q = notifState.askQuestions[notifState.askQuestionIndex]
+                await glassesUI.showAskUserQuestion(connection!, q, notifState.askQuestionIndex, notifState.askQuestions.length)
+              } else {
+                notifState.screen = 'detail-actions'
+                if (notifState.detailItem) {
+                  await glassesUI.showNotificationActions(connection!, notifState.detailItem)
+                }
               }
               updateNotifInfo()
               replyStopInFlight = false
@@ -1063,11 +1224,17 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             const msg = err instanceof Error ? err.message : String(err)
             log(`返信STT失敗: ${msg}`)
             await glassesUI.showReplyResult(connection!, false, msg)
-            // 3秒後にアクション画面に戻る
+            // 3秒後に前画面に戻る
             setTimeout(async () => {
-              notifState.screen = 'detail-actions'
-              if (notifState.detailItem && connection) {
-                await glassesUI.showNotificationActions(connection, notifState.detailItem)
+              if (notifState.detailItem && connection && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
+                notifState.screen = 'ask-question'
+                const q = notifState.askQuestions[notifState.askQuestionIndex]
+                await glassesUI.showAskUserQuestion(connection, q, notifState.askQuestionIndex, notifState.askQuestions.length)
+              } else {
+                notifState.screen = 'detail-actions'
+                if (notifState.detailItem && connection) {
+                  await glassesUI.showNotificationActions(connection, notifState.detailItem)
+                }
               }
               updateNotifInfo()
               replyStopInFlight = false
@@ -1076,14 +1243,20 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           return
         }
 
-        // スクロール入力はキャンセル → アクションに戻る
+        // スクロール入力はキャンセル → 前画面に戻る
         if (eventType === G2_EVENT.SCROLL_TOP || eventType === G2_EVENT.SCROLL_BOTTOM) {
-          log('返信録音: キャンセル → アクションに戻る')
+          log('返信録音: キャンセル → 前画面に戻る')
           replyIsRecording = false
           await connection!.stopAudio()
-          notifState.screen = 'detail-actions'
-          if (notifState.detailItem) {
-            await glassesUI.showNotificationActions(connection!, notifState.detailItem)
+          if (notifState.detailItem && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
+            notifState.screen = 'ask-question'
+            const q = notifState.askQuestions[notifState.askQuestionIndex]
+            await glassesUI.showAskUserQuestion(connection!, q, notifState.askQuestionIndex, notifState.askQuestions.length)
+          } else {
+            notifState.screen = 'detail-actions'
+            if (notifState.detailItem) {
+              await glassesUI.showNotificationActions(connection!, notifState.detailItem)
+            }
           }
           updateNotifInfo()
           replyStopInFlight = false
@@ -1100,11 +1273,23 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             log(`返信送信: notificationId=${notifState.detailItem.id}`)
             notifState.screen = 'reply-sending'
             try {
-              const res = await notifClient.reply(notifState.detailItem.id, {
-                action: 'comment',
-                comment: notifState.replyText,
-                source: 'g2',
-              })
+              // AskUserQuestion の「その他（音声）」経由の場合は answer として送信
+              const isAskQ = isAskUserQuestionNotification(notifState.detailItem)
+              const replyReq = isAskQ
+                ? {
+                    action: 'answer' as const,
+                    answerData: {
+                      ...notifState.askAnswers,
+                      [notifState.askQuestions[notifState.askQuestionIndex]?.question ?? '']: notifState.replyText,
+                    },
+                    source: 'g2' as const,
+                  }
+                : {
+                    action: 'comment' as const,
+                    comment: notifState.replyText,
+                    source: 'g2' as const,
+                  }
+              const res = await notifClient.reply(notifState.detailItem.id, replyReq)
               const status = res.reply?.status || 'ok'
               const result = getReplyResultMessage(res)
               log(`返信送信完了: status=${status}`)
@@ -1142,27 +1327,19 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             return
           }
 
-          if (index === 2) {
-            // キャンセル → アクションに戻る
-            log('返信確認: キャンセル → アクションに戻る')
-            notifState.screen = 'detail-actions'
+          if (index === 2 || index === 3) {
+            // キャンセル / ◀ 戻る → 前画面に戻る
+            log(`返信確認: ${index === 2 ? 'キャンセル' : '戻る'} → 前画面に戻る`)
             notifState.replyText = ''
-
-            if (notifState.detailItem) {
-              await glassesUI.showNotificationActions(connection!, notifState.detailItem)
-            }
-            updateNotifInfo()
-            return
-          }
-
-          if (index === 3) {
-            // ◀ 戻る → アクションに戻る
-            log('返信確認: 戻る → アクションに戻る')
-            notifState.screen = 'detail-actions'
-            notifState.replyText = ''
-
-            if (notifState.detailItem) {
-              await glassesUI.showNotificationActions(connection!, notifState.detailItem)
+            if (notifState.detailItem && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
+              notifState.screen = 'ask-question'
+              const q = notifState.askQuestions[notifState.askQuestionIndex]
+              await glassesUI.showAskUserQuestion(connection!, q, notifState.askQuestionIndex, notifState.askQuestions.length)
+            } else {
+              notifState.screen = 'detail-actions'
+              if (notifState.detailItem) {
+                await glassesUI.showNotificationActions(connection!, notifState.detailItem)
+              }
             }
             updateNotifInfo()
             return
