@@ -152,33 +152,63 @@ function extractSnippet(summary: string, toolName: string): string {
 }
 
 /** 通知一覧のリスト項目を生成（G2リスト表示用） */
+/** UTF-8 バイト数で文字列を切り詰め。末尾に '…' を付ける。サロゲートペア安全。 */
+function truncateByBytes(text: string, maxBytes: number): string {
+  if (maxBytes <= 0) return ''
+  const fullBytes = textEncoder.encode(text).length
+  if (fullBytes <= maxBytes) return text
+  const ellipsis = '…'
+  const ellipsisBytes = textEncoder.encode(ellipsis).length
+  const budget = Math.max(0, maxBytes - ellipsisBytes)
+  const chars = Array.from(text)
+  let used = 0
+  let out = ''
+  for (const ch of chars) {
+    const chBytes = textEncoder.encode(ch).length
+    if (used + chBytes > budget) break
+    out += ch
+    used += chBytes
+  }
+  return out + ellipsis
+}
+
+function byteLen(text: string): number {
+  return textEncoder.encode(text).length
+}
+
 function formatListItemName(item: NotificationItem): string {
   const age = formatAge(item.createdAt)
   const s = item.replyStatus
   const mark = s === 'delivered' || s === 'replied' ? '○' : s === 'decided' ? '>' : '●'
-  // "○proj:Title cmd… (2m)" 形式で表示（最大34文字）
+  // バイト基準の切り詰め: createStartUp の総バイト上限 (known-limitations §5: 999 bytes) を
+  // 必ず下回るよう 1 アイテムあたり 45 bytes を上限とする。
+  // 日本語(3byte/char)主体でも 20件 × 45byte = 900 bytes、ヘッダ ~40 bytes、合計 ~940 bytes。
+  // 旧実装はコードポイント数で切っていたため日本語が混ざると 45char × 3byte = 135byte/item まで
+  // 膨らみ、20件で 2700 bytes に達してファームがページ全体を silently 破棄していた。
   const prefix = mark + getNotificationPrefix(item)
   const suffix = ` (${age})`
-  const maxLen = 34
-  const available = Math.max(5, maxLen - prefix.length - suffix.length)
+  const maxBytes = 45
+  const available = Math.max(6, maxBytes - byteLen(prefix) - byteLen(suffix))
   const toolName = item.title
   const snippet = extractSnippet(item.summary, toolName)
   let body: string
-  if (snippet && toolName.length + 1 + snippet.length <= available) {
-    // "Bash curl -s ..." のようにツール名+スニペットが全部入る
+  if (snippet) {
     const combined = `${toolName} ${snippet}`
-    body = combined.length > available ? combined.slice(0, available - 1) + '…' : combined
-  } else if (snippet) {
-    // ツール名を短縮してスニペットを優先
-    const snipSpace = available - toolName.length - 1
-    if (snipSpace >= 4) {
-      const snip = snippet.length > snipSpace ? snippet.slice(0, snipSpace - 1) + '…' : snippet
-      body = `${toolName} ${snip}`
+    if (byteLen(combined) <= available) {
+      body = combined
     } else {
-      body = toolName.length > available ? toolName.slice(0, available - 1) + '…' : toolName
+      // ツール名は最低限残し、残りをスニペットに割り当てる
+      const toolBytes = Math.min(byteLen(toolName), Math.max(6, Math.floor(available / 2)))
+      const toolPart = truncateByBytes(toolName, toolBytes)
+      const snipSpace = available - byteLen(toolPart) - 1
+      if (snipSpace >= 4) {
+        body = `${toolPart} ${truncateByBytes(snippet, snipSpace)}`
+      } else {
+        body = truncateByBytes(toolName, available)
+      }
     }
   } else {
-    body = toolName.length > available ? toolName.slice(0, available - 1) + '…' : toolName
+    body = truncateByBytes(toolName, available)
   }
   return `${prefix}${body}${suffix}`
 }
@@ -421,30 +451,22 @@ export function createGlassesUI() {
         return
       }
 
-      const headerText = `通知 ${items.length}件`
+      // 重要: 実機ファームは ListContainer + TextContainer 複数 の組み合わせを
+      // silently 破棄する（createStartUp の戻り値は 0/1 を返すが描画されない）。
+      // 検証 (2026-04-15):
+      //   - TextContainer 1個 + ListContainer 1個 → 表示 OK
+      //   - TextContainer 2個 + ListContainer 1個 → 矩形重なりを 8px ギャップで解消しても NG
+      // → ヘッダに時刻をインラインして TextContainer を1個に保つ。シミュレータは寛容で
+      //    どちらでも描画してしまうので、ここを変更したら必ず実機で確認する。
+      const headerText = `通知 ${items.length}件  ${formatCurrentDateTime()}`
       const titleContainer = new TextContainerProperty({
         xPosition: 8,
         yPosition: 8,
-        width: 388,
+        width: 560,
         height: 28,
         containerID: 1,
         containerName: 'notif-header',
         content: headerText,
-        isEventCapture: 0,
-      })
-
-      const timeContainer = new TextContainerProperty({
-        xPosition: 356,
-        yPosition: 2,
-        width: 212,
-        height: 36,
-        borderWidth: 1,
-        borderColor: 5,
-        borderRdaius: 4,
-        paddingLength: 4,
-        containerID: 3,
-        containerName: 'notif-time',
-        content: formatCurrentDateTime(),
         isEventCapture: 0,
       })
 
@@ -465,7 +487,7 @@ export function createGlassesUI() {
       })
 
       await renderStartupPage(conn, {
-        texts: [titleContainer, timeContainer],
+        texts: [titleContainer],
         lists: [listContainer],
         targetLayout: 'notif-list',
       })
