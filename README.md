@@ -11,6 +11,7 @@ Even G2 can open notifications, record a voice reply, and send that response bac
 ## What works today
 
 - Approve / deny Claude Code permission requests from G2
+- Answer Claude Code `AskUserQuestion` prompts from G2 option lists
 - Send voice comments back to Claude Code
 - Check completion notifications on G2
 - Browse recent notifications and details on the glasses
@@ -18,7 +19,7 @@ Even G2 can open notifications, record a voice reply, and send that response bac
 
 ## Current limitations
 
-- **AskUserQuestion is not supported on G2 yet**. There is no interactive choice UI on the glasses for it today. For now, treat it as a workflow where you may need to answer with a comment or use the PC side.
+- **AskUserQuestion support is intentionally compact**. G2 can show question options and send selected answers, including multiple questions in sequence. The **Other (voice)** path sends a spoken free-form answer. Long question text or many options may still need the PC side because of the G2 display limits.
 - **This README focuses on completion notifications and permission-related interactions**, which are the flows currently easiest to verify.
 - **Real hardware has known list input quirks**. In some list screens, swipe direction can feel inverted on the device. See [docs/known-limitations.md](docs/known-limitations.md).
 - **Simulator behavior differs from real hardware**. Always verify important behavior on the actual glasses.
@@ -128,6 +129,18 @@ This starts the Hub and Vite UI, injects Claude Code hooks, prepares a tmux sess
 5. **Swipe cancels recording** while recording is active
 
 Voice comments are returned to Claude Code as **deny + instruction text**.
+
+### AskUserQuestion flow
+
+When Claude Code asks an `AskUserQuestion`, cc-g2 opens the question directly on G2 instead of showing it as a normal notification detail.
+
+1. Read the question on G2
+2. Swipe through the available options
+3. Single tap to choose an option
+4. For multiple questions, answer each question in sequence
+5. Choose **その他（音声）** ("Other (voice)") if you need to dictate a free-form answer
+
+Selected answers are sent back through the Hub as an answer payload for the matching Claude Code prompt.
 
 ## Voice Entry
 

@@ -111,17 +111,27 @@ resolve_statusline_flag() {
   printf '%s' "$value"
 }
 
+secure_token_file() {
+  local file="$1"
+  if ! chmod 600 "$file" 2>/dev/null; then
+    warn "Could not set 0600 permissions on token file: $file" >&2
+  fi
+}
+
 load_or_create_hub_auth_token() {
   if [ -n "${HUB_AUTH_TOKEN:-}" ]; then
     printf '%s' "$HUB_AUTH_TOKEN"
     return
   fi
   if [ -f "$HUB_AUTH_TOKEN_FILE" ]; then
+    secure_token_file "$HUB_AUTH_TOKEN_FILE"
     cat "$HUB_AUTH_TOKEN_FILE"
     return
   fi
   mkdir -p "$(dirname "$HUB_AUTH_TOKEN_FILE")"
-  node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))' | tee "$HUB_AUTH_TOKEN_FILE" >/dev/null
+  ( umask 077; node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))' > "$HUB_AUTH_TOKEN_FILE" )
+  secure_token_file "$HUB_AUTH_TOKEN_FILE"
+  cat "$HUB_AUTH_TOKEN_FILE"
 }
 
 load_or_create_voice_entry_token() {
@@ -131,6 +141,7 @@ load_or_create_voice_entry_token() {
     return
   fi
   if [ -f "$VOICE_ENTRY_TOKEN_FILE" ]; then
+    secure_token_file "$VOICE_ENTRY_TOKEN_FILE"
     token="$(cat "$VOICE_ENTRY_TOKEN_FILE")"
     if [ -n "$token" ] && [ "$token" != "replace-me" ]; then
       printf '%s' "$token"
@@ -138,7 +149,9 @@ load_or_create_voice_entry_token() {
     fi
   fi
   mkdir -p "$(dirname "$VOICE_ENTRY_TOKEN_FILE")"
-  node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))' | tee "$VOICE_ENTRY_TOKEN_FILE" >/dev/null
+  ( umask 077; node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))' > "$VOICE_ENTRY_TOKEN_FILE" )
+  secure_token_file "$VOICE_ENTRY_TOKEN_FILE"
+  cat "$VOICE_ENTRY_TOKEN_FILE"
 }
 
 resolve_voice_entry_enabled() {
@@ -867,7 +880,7 @@ if [ "$USE_CODEX_PROXY" -eq 1 ]; then
       CC_G2_ORIG_STATUSLINE_CMD="$ORIG_STATUSLINE_CMD" \
       ANTHROPIC_BASE_URL="http://127.0.0.1:8317" \
       ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-6" \
-      ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.4" \
+      ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5" \
       ANTHROPIC_DEFAULT_HAIKU_MODEL="glm-4.7" \
       ANTHROPIC_AUTH_TOKEN="sk-dummy" \
       API_TIMEOUT_MS="3000000" \
@@ -881,7 +894,7 @@ if [ "$USE_CODEX_PROXY" -eq 1 ]; then
     CC_G2_ORIG_STATUSLINE_CMD="$ORIG_STATUSLINE_CMD" \
     ANTHROPIC_BASE_URL="http://127.0.0.1:8317" \
     ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-6" \
-    ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.4" \
+    ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5" \
     ANTHROPIC_DEFAULT_HAIKU_MODEL="glm-4.7" \
     ANTHROPIC_AUTH_TOKEN="sk-dummy" \
     API_TIMEOUT_MS="3000000" \

@@ -618,7 +618,7 @@ export function createGlassesUI() {
         return
       }
 
-      const actionItems = ['コメント', '拒否', '承認', '◀ 戻る']
+      const actionItems = ['コメント', 'Approve', 'Deny', '◀ 戻る']
 
       const headerContainer = new TextContainerProperty({
         xPosition: 8,

@@ -369,11 +369,11 @@ document.getElementById('approval-btn')!.addEventListener('click', async () => {
   const result = await glassesUI.requestApproval(connection, {
     title: 'ファイル編集の承認',
     detail: 'src/auth.ts +12行/-3行',
-    options: ['承認', '拒否'],
+    options: ['Approve', 'Deny'],
   })
 
   resultEl.textContent = `結果: ${result}`
-  resultEl.classList.add(result === '承認' ? 'approved' : 'rejected')
+  resultEl.classList.add(result === 'Approve' ? 'approved' : 'rejected')
   log(`承認結果: ${result}`)
 })
 
@@ -661,7 +661,7 @@ function updateNotifInfo() {
   } else if (notifState.screen === 'detail-actions' && notifState.detailItem) {
     infoEl.textContent = [
       `[操作] ${notifState.detailItem.title}`,
-      '0=コメント, 1=拒否, 2=承認',
+      '0=コメント, 1=Approve, 2=Deny, 3=◀ 戻る',
       'Click=選択, DblClick=詳細に戻る',
     ].join('\n')
   } else if (notifState.screen === 'ask-question') {
@@ -1008,8 +1008,8 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           }
 
           if (index === 1 || index === 2) {
-            // 拒否(1) or 承認(2)
-            const action = index === 2 ? 'approve' : 'deny'
+            // Approve(1) or Deny(2)
+            const action = index === 1 ? 'approve' : 'deny'
             log(`通知アクション送信: ${action} notificationId=${notifState.detailItem.id}`)
             notifState.screen = 'reply-sending'
             updateNotifInfo()
@@ -1024,7 +1024,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
               // await 中にユーザー操作でリストに戻っていたら結果画面をスキップ
               if (notifState.screen === 'reply-sending') {
                 if (result.ok) {
-                  await glassesUI.showReplyResult(connection!, true, action === 'approve' ? '承認' : '拒否')
+                  await glassesUI.showReplyResult(connection!, true, action === 'approve' ? 'Approve' : 'Deny')
                 } else {
                   await glassesUI.showReplyResult(connection!, false, result.message || status)
                 }
