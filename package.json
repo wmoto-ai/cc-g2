@@ -1,9 +1,31 @@
 {
-  "name": "cc-g2",
+  "name": "@wmoto-ai/cc-g2",
   "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.4",
+  "private": false,
   "type": "module",
+  "bin": {
+    "cc-g2": "scripts/cc-g2.sh",
+    "cc-g2-codex": "scripts/cc-g2-codex.sh"
+  },
+  "files": [
+    ".env.example",
+    "LICENSE",
+    "README.md",
+    "README.ja.md",
+    "app.json",
+    "docs/screenshots/",
+    "index.html",
+    "scripts/",
+    "server/",
+    "src/",
+    "tsconfig.json",
+    "vite.config.ts"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "hub:dev": "node server/notification-hub/index.mjs",
@@ -11,16 +33,16 @@
     "voice-entry:dev": "node server/voice-entry/index.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run test/even-events.test.ts test/format-and-wav.test.ts test/paginate-text.test.ts test/hub-approval-api.test.mjs test/hub-hook-endpoint.test.mjs test/hub-location-api.test.mjs test/voice-entry.test.mjs",
+    "test": "vitest run test/even-events.test.ts test/format-and-wav.test.ts test/paginate-text.test.ts test/hub-approval-api.test.mjs test/hub-hook-endpoint.test.mjs test/hub-codex-hook.test.mjs test/hub-location-api.test.mjs test/voice-entry.test.mjs",
     "test:all": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.7"
+    "@evenrealities/even_hub_sdk": "^0.0.7",
+    "vite": "^7.3.2"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "vite": "^7.3.2",
     "vitest": "^4.0.18"
   },
   "pnpm": {

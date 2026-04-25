@@ -199,6 +199,10 @@ function normalizeVoicePrompt(text) {
   return normalized || raw
 }
 
+function detectAgentMode(text) {
+  return /(^|\s)(--codex|codex|code\s*x)(?=$|\s)/i.test(String(text || '')) ? 'codex' : 'claude'
+}
+
 function normalizeForMatch(text) {
   return String(text || '')
     .toLowerCase()
@@ -568,18 +572,20 @@ async function sessionExists(sessionName) {
   }
 }
 
-async function findSessionForWorkdir(workdir) {
+async function findSessionForWorkdir(workdir, agentMode = 'claude') {
   if (!workdir) return null
   try {
-    const result = await runCcG2Command(['find-session', '--workdir', workdir])
+    const result = await runCcG2Command(['find-session', '--workdir', workdir, '--agent', agentMode])
     return result?.exists ? result.sessionName : null
   } catch {
     return null
   }
 }
 
-function launchCcG2Session(prompt, workdir) {
-  return runCcG2Command(['launch-detached', '--workdir', workdir, '--prompt', prompt])
+function launchCcG2Session(prompt, workdir, agentMode = 'claude') {
+  const args = ['launch-detached', '--workdir', workdir, '--prompt', prompt]
+  if (agentMode === 'codex') args.push('--agent', 'codex')
+  return runCcG2Command(args)
 }
 
 function continueCcG2Session(prompt, sessionName) {
@@ -702,11 +708,13 @@ const server = http.createServer((req, res) => {
 
       if (VOICE_ENTRY_MODE === 'session-entry') {
         const target = await resolveLaunchTarget(userText)
+        const agentMode = detectAgentMode(userText)
+        const agentLabel = agentMode === 'codex' ? 'Codex' : 'Claude Code'
 
         // continue_latest: find an existing session for the selector-chosen workdir
         let continueSessionName = null
         if (target.mode === 'continue_latest') {
-          continueSessionName = await findSessionForWorkdir(target.workdir)
+          continueSessionName = await findSessionForWorkdir(target.workdir, agentMode)
         }
 
         let launch
@@ -725,18 +733,19 @@ const server = http.createServer((req, res) => {
           }
         }
         if (!launch) {
-          launch = await launchCcG2Session(target.prompt, target.workdir)
+          launch = await launchCcG2Session(target.prompt, target.workdir, agentMode)
         }
 
         const effectiveWorkdir = target.workdir
         const effectiveSessionName = launch.sessionName || continueSessionName || ''
         const content = canContinue
-          ? `既存のClaude Codeセッションに続けて依頼しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
-          : `新しいClaude Codeセッションを開始しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
+          ? `既存の${agentLabel}セッションに続けて依頼しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
+          : `新しい${agentLabel}セッションを開始しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
 
         writeLastSession({
           sessionName: effectiveSessionName,
           workdir: effectiveWorkdir,
+          agentMode,
           prompt: target.prompt,
           updatedAt: new Date().toISOString(),
         })
@@ -748,6 +757,7 @@ const server = http.createServer((req, res) => {
           prompt: target.prompt,
           sessionName: effectiveSessionName,
           workdir: effectiveWorkdir,
+          agentMode,
           workdirScore: target.score,
           workdirSource: target.source,
           mode: target.mode,

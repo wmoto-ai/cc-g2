@@ -93,15 +93,19 @@ case "$cmd" in
     ;;
   find-session)
     workdir=""
+    agent="claude"
     while [ $# -gt 0 ]; do
       case "$1" in
         --workdir) workdir="$2"; shift 2 ;;
+        --agent) agent="$2"; shift 2 ;;
         *) shift ;;
       esac
     done
     base=$(basename "$workdir")
+    suffix=""
+    [ "$agent" = "codex" ] && suffix="-codex"
     if [ -f "$STATE_DIR/continue-ok" ]; then
-      node -e 'console.log(JSON.stringify({ok:true, exists:true, sessionName:process.argv[1]}))' "g2-$base-stub"
+      node -e 'console.log(JSON.stringify({ok:true, exists:true, sessionName:process.argv[1]}))' "g2-$base-stub$suffix"
     else
       node -e 'console.log(JSON.stringify({ok:true, exists:false}))'
     fi
@@ -109,16 +113,20 @@ case "$cmd" in
   launch-detached)
     workdir=""
     prompt=""
+    agent="claude"
     while [ $# -gt 0 ]; do
       case "$1" in
         --workdir) workdir="$2"; shift 2 ;;
         --prompt) prompt="$2"; shift 2 ;;
+        --agent) agent="$2"; shift 2 ;;
         --codex) shift ;;
         *) shift ;;
       esac
     done
     base=$(basename "$workdir")
-    node -e 'console.log(JSON.stringify({ok:true, sessionName:process.argv[1], tmuxTarget:process.argv[2], workdir:process.argv[3], prompt:process.argv[4]}))' "g2-$base-stub" "g2-$base-stub:0.0" "$workdir" "$prompt"
+    suffix=""
+    [ "$agent" = "codex" ] && suffix="-codex"
+    node -e 'console.log(JSON.stringify({ok:true, sessionName:process.argv[1], tmuxTarget:process.argv[2], workdir:process.argv[3], prompt:process.argv[4]}))' "g2-$base-stub$suffix" "g2-$base-stub$suffix:0.0" "$workdir" "$prompt"
     ;;
   send)
     session=""
@@ -239,6 +247,27 @@ exec ${JSON.stringify(process.execPath)} ${JSON.stringify(claudeStub)} "$@"
     const lastSession = JSON.parse(await readFile(lastSessionFile, 'utf8'))
     expect(lastSession.sessionName).toBe('g2-alpha-tool-stub')
     expect(lastSession.workdir).toContain(path.join('repos', 'alpha-tool'))
+  })
+
+  it('starts a Codex session when voice request includes codex', async () => {
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TEST_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openclaw',
+        messages: [{ role: 'user', content: 'codex で alpha tool の修正して' }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(extractContent(data)).toContain('新しいCodexセッションを開始しました')
+
+    const lastSession = JSON.parse(await readFile(lastSessionFile, 'utf8'))
+    expect(lastSession.sessionName).toBe('g2-alpha-tool-stub-codex')
+    expect(lastSession.agentMode).toBe('codex')
   })
 
   it('continues latest session when follow-up voice request refers to current work', async () => {

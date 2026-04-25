@@ -300,13 +300,12 @@ export function createGlassesUI() {
       }
       log(`G2 createStartUp: layout=${targetLayout} containers=${JSON.stringify(startupInfo)}`)
       const result = await conn.bridge.createStartUpPageContainer(payload)
-      // Some runtimes return non-zero when startup page already exists.
-      // Treat 0/1 as "startup page is present" to avoid repeatedly calling createStartUp.
-      if (result === 0 || result === 1) {
+      // SDK StartUpPageCreateResult: 0=success, 1=invalid, 2=oversize, 3=outOfMemory.
+      // Only success means the startup page is present.
+      if (result === 0) {
         startupRenderedBridges.add(bridgeKey)
-        if (result === 1) log('G2 startup描画結果コード: 1（既存startup扱いで継続）')
       } else {
-        log(`G2 startup描画結果コード: ${result}（0/1以外）`)
+        log(`G2 startup描画失敗: code=${result}`)
       }
       return
     }
@@ -332,7 +331,7 @@ export function createGlassesUI() {
       // スキップせず毎回呼び出してから createStartUp にフォールバックする。
       log(`G2 rebuild 失敗 (${currentLayout} → ${targetLayout}) → createStartUp フォールバック`)
       const forced = await conn.bridge.createStartUpPageContainer(payload)
-      if (forced === 0 || forced === 1) {
+      if (forced === 0) {
         startupRenderedBridges.add(bridgeKey)
       } else {
         log(`G2 createStartUp フォールバック失敗: code=${forced}`)
