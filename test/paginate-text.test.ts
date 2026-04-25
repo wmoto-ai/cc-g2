@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { paginateText } from '../src/glasses-ui'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createGlassesUI, paginateText } from '../src/glasses-ui'
 
 /** UTF-8バイト数を返すヘルパー */
 const byteLen = (s: string) => new TextEncoder().encode(s).length
@@ -119,5 +119,43 @@ describe('paginateText', () => {
       expect(byteLen(chunk)).toBeLessThanOrEqual(999)
     }
     expect(result.join('')).toBe(mixed.replace(/\r\n/g, '\n').trim())
+  })
+})
+
+describe('createGlassesUI startup result handling', () => {
+  beforeEach(() => {
+    vi.stubGlobal('document', { getElementById: () => null })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('does not mark startup as rendered when createStartUp returns invalid', async () => {
+    const ui = createGlassesUI()
+    const conn = {
+      bridge: {
+        createStartUpPageContainer: vi.fn().mockResolvedValue(1),
+      },
+    }
+
+    await ui.showText(conn as never, 'hello')
+
+    expect(conn.bridge.createStartUpPageContainer).toHaveBeenCalledTimes(1)
+    expect(ui.hasRenderedPage(conn as never)).toBe(false)
+  })
+
+  it('marks startup as rendered only when createStartUp succeeds', async () => {
+    const ui = createGlassesUI()
+    const conn = {
+      bridge: {
+        createStartUpPageContainer: vi.fn().mockResolvedValue(0),
+      },
+    }
+
+    await ui.showText(conn as never, 'hello')
+
+    expect(conn.bridge.createStartUpPageContainer).toHaveBeenCalledTimes(1)
+    expect(ui.hasRenderedPage(conn as never)).toBe(true)
   })
 })

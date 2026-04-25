@@ -10,7 +10,11 @@
 # 使い方:
 #   cc-g2                  # カレントディレクトリで Claude Code + G2
 #   cc-g2 new              # 同じディレクトリでも新しい tmux セッションで起動
-#   cc-g2 --codex          # Claude Code (Codex Proxy 設定) + G2
+#   cc-g2 --new            # new と同じ
+#   cc-g2 codex            # Codex CLI + G2
+#   cc-g2 --codex          # Codex CLI + G2
+#   cc-g2 --native-codex   # Codex CLI + G2 (互換 alias)
+#   cc-g2 --help           # ヘルプ表示
 #   cc-g2 !                # インフラ再起動してから Claude Code + G2
 #   cc-g2 stop             # G2 インフラ全停止
 #   cc-g2 status           # 状態確認
@@ -38,6 +42,7 @@ G2_PROJECT_DIR="${G2_PROJECT_DIR:-$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd -P)
 HUB_PORT="${HUB_PORT:-8787}"
 VITE_PORT="${VITE_PORT:-5173}"
 CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
+CODEX_BIN="${CODEX_BIN:-codex}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -62,10 +67,40 @@ warn()  {
 }
 error() { echo -e "${RED}[g2]${NC} $*" >&2; }
 
+print_usage() {
+  cat <<'EOF'
+cc-g2 — Claude Code / Codex CLI + Even G2 launcher
+
+Usage:
+  cc-g2 [options] [-- <agent args>]
+  cc-g2 new [options] [-- <agent args>]
+  cc-g2 --new [options] [-- <agent args>]
+  cc-g2 codex [-- <codex args>]
+  cc-g2 --codex [-- <codex args>]
+  cc-g2 stop
+  cc-g2 status
+  cc-g2 doctor
+
+Options:
+  --codex          Launch Codex CLI with G2 hooks
+  --native-codex   Launch Codex CLI with G2 hooks (legacy alias)
+  --new            Force a new tmux session
+  !                Restart Hub/Vite/Voice Entry before launch
+  --help, -h       Show this help
+
+Environment:
+  SHOW_QR=0        Hide QR code
+  G2_PROJECT_DIR   Override the cc-g2 package/project directory
+  HUB_PORT         Hub port (default: 8787)
+  VITE_PORT        Vite port (default: 5173)
+EOF
+}
+
 SHOW_QR="${SHOW_QR:-1}"
 ENABLE_STATUSLINE="${CC_G2_ENABLE_STATUSLINE:-}"
 FORCE_INFRA_RESTART=0
 FORCE_NEW_SESSION=0
+AGENT_MODE="claude"
 HUB_AUTH_TOKEN_FILE="${G2_PROJECT_DIR}/tmp/notification-hub/hub-auth-token"
 VOICE_ENTRY_PORT="${CC_G2_VOICE_ENTRY_PORT:-8797}"
 VOICE_ENTRY_BIND="${CC_G2_VOICE_ENTRY_BIND:-0.0.0.0}"
@@ -114,7 +149,7 @@ resolve_statusline_flag() {
 secure_token_file() {
   local file="$1"
   if ! chmod 600 "$file" 2>/dev/null; then
-    warn "Could not set 0600 permissions on token file: $file" >&2
+    warn "Could not set 0600 permissions on token file: $file"
   fi
 }
 
@@ -193,6 +228,23 @@ ENABLE_STATUSLINE="$(resolve_statusline_flag)"
 VOICE_ENTRY_ENABLED="$(resolve_voice_entry_enabled)"
 VOICE_ENTRY_REPO_ROOTS="$(resolve_repo_roots)"
 
+detect_agent_mode() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      new|--new|'!')
+        ;;
+      codex|--codex|--native-codex|-codex)
+        printf 'codex'
+        return
+        ;;
+      *)
+        ;;
+    esac
+    shift
+  done
+  printf 'claude'
+}
+
 refresh_hub_auth_token() {
   unset HUB_AUTH_TOKEN
   HUB_AUTH_TOKEN="$(load_or_create_hub_auth_token)"
@@ -245,19 +297,37 @@ resolve_claude_bin() {
   printf '%s' "${CLAUDE_BIN:-claude}"
 }
 
+resolve_codex_bin() {
+  if [ -n "${CODEX_BIN:-}" ] && command -v "$CODEX_BIN" >/dev/null 2>&1; then
+    command -v "$CODEX_BIN"
+    return
+  fi
+  if command -v codex >/dev/null 2>&1; then
+    command -v codex
+    return
+  fi
+  printf '%s' "${CODEX_BIN:-codex}"
+}
+
 make_tmux_session_name() {
   local work_dir="$1"
+  local agent_mode="${2:-claude}"
   local base slug hash
   base="$(basename "$work_dir")"
   slug="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')"
   hash="$(printf '%s' "$work_dir" | shasum | awk '{print substr($1,1,4)}')"
-  printf 'g2-%s-%s' "$slug" "$hash"
+  if [ "$agent_mode" = "codex" ]; then
+    printf 'g2-%s-%s-codex' "$slug" "$hash"
+  else
+    printf 'g2-%s-%s' "$slug" "$hash"
+  fi
 }
 
 make_unique_tmux_session_name() {
   local work_dir="$1"
+  local agent_mode="${2:-claude}"
   local base candidate suffix
-  base="$(make_tmux_session_name "$work_dir")"
+  base="$(make_tmux_session_name "$work_dir" "$agent_mode")"
   candidate="$base"
   suffix=2
   while tmux has-session -t "$candidate" 2>/dev/null; do
@@ -279,8 +349,8 @@ has_tmux_session() {
 launch_tmux_session_detached() {
   local work_dir="$1"
   local prompt="$2"
-  local use_codex="$3"
-  local session_name="$(make_unique_tmux_session_name "$work_dir")"
+  local agent_mode="$3"
+  local session_name="$(make_unique_tmux_session_name "$work_dir" "$agent_mode")"
   local tmux_env=(
     -e _CC_G2_INSIDE=1
     -e MOSHI_NOTIFY=1
@@ -289,7 +359,7 @@ launch_tmux_session_detached() {
     -e CC_G2_ORIG_STATUSLINE_CMD="${ORIG_STATUSLINE_CMD}"
   )
   local nested_args=()
-  if [ "$use_codex" = "1" ]; then
+  if [ "$agent_mode" = "codex" ]; then
     nested_args+=("--codex")
   fi
   if [ -n "$prompt" ]; then
@@ -326,17 +396,18 @@ run_internal_command() {
     launch-detached)
       local work_dir=""
       local prompt=""
-      local use_codex=0
+      local agent_mode="claude"
       while [ $# -gt 0 ]; do
         case "$1" in
           --workdir) work_dir="$2"; shift 2 ;;
           --prompt) prompt="$2"; shift 2 ;;
-          --codex) use_codex=1; shift ;;
+          --agent) agent_mode="$2"; shift 2 ;;
+          codex|--codex|--native-codex|-codex) agent_mode="codex"; shift ;;
           *) error "Unknown launch-detached arg: $1"; exit 1 ;;
         esac
       done
       [ -n "$work_dir" ] || { error "launch-detached requires --workdir"; exit 1; }
-      launch_tmux_session_detached "$work_dir" "$prompt" "$use_codex"
+      launch_tmux_session_detached "$work_dir" "$prompt" "$agent_mode"
       exit 0
       ;;
     send)
@@ -371,15 +442,18 @@ run_internal_command() {
       ;;
     find-session)
       local work_dir=""
+      local agent_mode="claude"
       while [ $# -gt 0 ]; do
         case "$1" in
           --workdir) work_dir="$2"; shift 2 ;;
+          --agent) agent_mode="$2"; shift 2 ;;
+          codex|--codex|--native-codex|-codex) agent_mode="codex"; shift ;;
           *) error "Unknown find-session arg: $1"; exit 1 ;;
         esac
       done
       [ -n "$work_dir" ] || { error "find-session requires --workdir"; exit 1; }
       local base_name
-      base_name="$(make_tmux_session_name "$work_dir")"
+      base_name="$(make_tmux_session_name "$work_dir" "$agent_mode")"
       # Pick the latest session matching base_name (highest suffix wins)
       local found=""
       found=$(tmux list-sessions -F '#{session_name}' 2>/dev/null \
@@ -395,6 +469,17 @@ run_internal_command() {
 }
 
 # --- 依存コマンドチェック ---
+for arg in "$@"; do
+  case "$arg" in
+    --help|-h|help)
+      print_usage
+      exit 0
+      ;;
+  esac
+done
+
+AGENT_MODE="$(detect_agent_mode "$@")"
+
 check_deps() {
   local missing=()
   for cmd in tmux curl lsof jq; do
@@ -402,7 +487,11 @@ check_deps() {
       missing+=("$cmd")
     fi
   done
-  if ! command -v "$CLAUDE_BIN" >/dev/null 2>&1 && ! command -v claude >/dev/null 2>&1; then
+  if [ "$AGENT_MODE" = "codex" ]; then
+    if ! command -v "$CODEX_BIN" >/dev/null 2>&1 && ! command -v codex >/dev/null 2>&1; then
+      missing+=("codex")
+    fi
+  elif ! command -v "$CLAUDE_BIN" >/dev/null 2>&1 && ! command -v claude >/dev/null 2>&1; then
     missing+=("claude")
   fi
   if [ ${#missing[@]} -gt 0 ]; then
@@ -416,6 +505,7 @@ check_deps() {
 }
 check_deps
 CLAUDE_BIN="$(resolve_claude_bin)"
+CODEX_BIN="$(resolve_codex_bin)"
 
 is_hub_running()  { curl -s --max-time 1 "http://127.0.0.1:$HUB_PORT/api/health" >/dev/null 2>&1; }
 is_vite_running() { lsof -i ":$VITE_PORT" -P 2>/dev/null | grep -q LISTEN; }
@@ -660,6 +750,13 @@ cmd_doctor() {
   else
     warn "claude: not found"; ok=false
   fi
+  if command -v "$CODEX_BIN" >/dev/null 2>&1; then
+    info "codex: $CODEX_BIN"
+  elif command -v codex >/dev/null 2>&1; then
+    info "codex: $(command -v codex)"
+  else
+    warn "codex: not found"
+  fi
 
   # Tailscale
   if command -v tailscale >/dev/null 2>&1; then
@@ -735,11 +832,17 @@ cmd_doctor() {
 run_internal_command "${1:-}" "${@:2}"
 
 case "${1:-}" in
-  new)     FORCE_NEW_SESSION=1; shift ;;
+  new|--new) FORCE_NEW_SESSION=1; shift ;;
+  codex)   AGENT_MODE="codex"; shift; set -- --codex "$@" ;;
+  --help|-h|help) print_usage; exit 0 ;;
   stop)    cmd_stop; exit 0 ;;
   status)  cmd_status; exit 0 ;;
   doctor)  cmd_doctor; exit 0 ;;
   '!')     info "インフラを再起動します"; cmd_stop; FORCE_INFRA_RESTART=1; shift ;;
+esac
+
+case "${1:-}" in
+  -codex|--codex|--native-codex) AGENT_MODE="codex" ;;
 esac
 
 if [ "$FORCE_INFRA_RESTART" = "1" ]; then
@@ -758,9 +861,9 @@ if [ -z "${TMUX:-}" ] || [ "$FORCE_NEW_SESSION" = "1" ]; then
   # basename は読みやすさ用、短い hash で同名ディレクトリ衝突を避ける。
   WORK_DIR="$(pwd)"
   if [ "$FORCE_NEW_SESSION" = "1" ]; then
-    TMUX_SESSION="$(make_unique_tmux_session_name "$WORK_DIR")"
+    TMUX_SESSION="$(make_unique_tmux_session_name "$WORK_DIR" "$AGENT_MODE")"
   else
-    TMUX_SESSION="$(make_tmux_session_name "$WORK_DIR")"
+    TMUX_SESSION="$(make_tmux_session_name "$WORK_DIR" "$AGENT_MODE")"
   fi
 
   info "tmux セッション '${TMUX_SESSION}' を作成中..."
@@ -779,9 +882,14 @@ if [ -z "${TMUX:-}" ] || [ "$FORCE_NEW_SESSION" = "1" ]; then
       -e CC_G2_ENABLE_STATUSLINE="${ENABLE_STATUSLINE}"
       -e CC_G2_ORIG_STATUSLINE_CMD="${ORIG_STATUSLINE_CMD}"
     )
+    tmux_cmd="\"$0\""
+    if [ $# -gt 0 ]; then
+      tmux_cmd+="$(printf ' %q' "$@")"
+    fi
+    tmux_cmd+="; exec \$SHELL"
     if ! tmux new-session -s "$TMUX_SESSION" -c "$WORK_DIR" \
       "${tmux_env[@]}" \
-      "\"$0\" $*; exec \$SHELL"; then
+      "$tmux_cmd"; then
       echo >&2
       echo "[g2] tmux セッションの作成に失敗しました。" >&2
       echo "[g2] 対話型ターミナル（Terminal.app / iTerm2 / Ghostty など）から実行してください。" >&2
@@ -790,20 +898,18 @@ if [ -z "${TMUX:-}" ] || [ "$FORCE_NEW_SESSION" = "1" ]; then
   fi
 fi
 
-# ここに来るのは tmux 内で実行された場合
-# 通常は _CC_G2_INSIDE=1 ならインフラ起動済みとしてスキップ。
-# ただし `cc-g2 !` は明示的に stop 済みなので、tmux 内でも必ず再起動する。
-if [ "${_CC_G2_INSIDE:-}" != "1" ] || [ "$FORCE_INFRA_RESTART" = "1" ]; then
-  ensure_infra
-fi
+# ここに来るのは tmux 内で実行された場合。
+# 初回起動直後や既存プロセスの token mismatch を取りこぼさないよう、
+# agent 起動直前にも infra を再確認する。
+ensure_infra
 
 # 起動時オプションを前処理。
-# --codex は cc-g2 側で吸収し、claude 本体へは渡さない。
-USE_CODEX_PROXY=0
+# codex / --codex / --native-codex は cc-g2 側で吸収し、起動対象本体へは渡さない。
+USE_NATIVE_CODEX=0
 CLAUDE_ARGS=()
 for arg in "$@"; do
-  if [ "$arg" = "--codex" ]; then
-    USE_CODEX_PROXY=1
+  if [ "$arg" = "codex" ] || [ "$arg" = "-codex" ] || [ "$arg" = "--codex" ] || [ "$arg" = "--native-codex" ]; then
+    USE_NATIVE_CODEX=1
     continue
   fi
   CLAUDE_ARGS+=("$arg")
@@ -812,7 +918,11 @@ done
 # QR コードを tmux 内で表示（スキャンしてから Enter で Claude Code 起動）
 show_qr
 
-info "Claude Code 起動 (MOSHI_NOTIFY=1)"
+if [ "$USE_NATIVE_CODEX" -eq 1 ]; then
+  info "Codex CLI 起動 (MOSHI_NOTIFY=1)"
+else
+  info "Claude Code 起動 (MOSHI_NOTIFY=1)"
+fi
 info "CWD: $(pwd)"
 echo
 
@@ -820,8 +930,38 @@ echo
 # (どのディレクトリから実行しても PermissionRequest / Stop が動く)
 STATUSLINE_SCRIPT="${G2_PROJECT_DIR}/scripts/cc-g2-statusline.sh"
 STOP_NOTIFY_SCRIPT="${G2_PROJECT_DIR}/scripts/cc-g2-stop-notify.sh"
+CODEX_HOOK_SCRIPT="${G2_PROJECT_DIR}/scripts/codex-hook-bridge.sh"
+CODEX_STOP_NOTIFY_SCRIPT="${G2_PROJECT_DIR}/scripts/codex-stop-notify.sh"
 STATUSLINE_CMD=""
 [ "$ENABLE_STATUSLINE" = "1" ] && [ -x "$STATUSLINE_SCRIPT" ] && STATUSLINE_CMD="bash ${STATUSLINE_SCRIPT}"
+
+if [ "$USE_NATIVE_CODEX" -eq 1 ]; then
+  CODEX_HOOK_CMD="bash ${CODEX_HOOK_SCRIPT}"
+  CODEX_STOP_CMD="bash ${CODEX_STOP_NOTIFY_SCRIPT}"
+  CODEX_HOOK_CMD_TOML=$(jq -Rnr --arg s "$CODEX_HOOK_CMD" '$s | @json')
+  CODEX_STOP_CMD_TOML=$(jq -Rnr --arg s "$CODEX_STOP_CMD" '$s | @json')
+  CODEX_HOOKS_CONFIG="{ PermissionRequest = [{ matcher = \"\", hooks = [{ type = \"command\", command = ${CODEX_HOOK_CMD_TOML}, timeout = 600, statusMessage = \"G2 承認待ち...\" }] }], Stop = [{ hooks = [{ type = \"command\", command = ${CODEX_STOP_CMD_TOML}, timeout = 30, statusMessage = \"G2 完了通知を送信中...\" }] }] }"
+  info "Hooks: PermissionRequest (command) + Stop (通知)"
+  info "Model Route: Codex CLI (--codex)"
+  CODEX_ENV=(
+    MOSHI_NOTIFY=1
+    HUB_PORT="$HUB_PORT"
+    HUB_URL="http://127.0.0.1:${HUB_PORT}"
+    HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN"
+    CC_G2_TMUX_TARGET="${CC_G2_TMUX_TARGET:-}"
+  )
+  CODEX_ARGS=(
+    --enable codex_hooks
+    -c "hooks=${CODEX_HOOKS_CONFIG}"
+  )
+  if [ "${#CLAUDE_ARGS[@]}" -gt 0 ]; then
+    exec env "${CODEX_ENV[@]}" "$CODEX_BIN" "${CODEX_ARGS[@]}" "${CLAUDE_ARGS[@]}"
+  fi
+  exec env \
+    "${CODEX_ENV[@]}" \
+    "$CODEX_BIN" \
+    "${CODEX_ARGS[@]}"
+fi
 
 SETTINGS_JSON=$(jq -nc \
   --arg hub_url "http://127.0.0.1:${HUB_PORT}" \
@@ -854,10 +994,6 @@ SETTINGS_JSON=$(jq -nc \
     else . end
   ')
 
-if [ "$USE_CODEX_PROXY" -eq 1 ]; then
-  SETTINGS_JSON=$(echo "$SETTINGS_JSON" | jq -c '.teammateMode = "in-process"')
-fi
-
 info "Hooks: PermissionRequest (HTTP) + Stop (通知)"
 if [ -n "$STATUSLINE_CMD" ]; then
   info "StatusLine wrapper: ${STATUSLINE_SCRIPT}"
@@ -868,38 +1004,6 @@ else
   else
     info "StatusLine: no user statusLine.command found in ~/.claude/settings.json"
   fi
-fi
-
-if [ "$USE_CODEX_PROXY" -eq 1 ]; then
-  info "Model Route: Codex Proxy (--codex)"
-  if [ "${#CLAUDE_ARGS[@]}" -gt 0 ]; then
-    exec env \
-      MOSHI_NOTIFY=1 \
-      HUB_PORT="$HUB_PORT" \
-      HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" \
-      CC_G2_ORIG_STATUSLINE_CMD="$ORIG_STATUSLINE_CMD" \
-      ANTHROPIC_BASE_URL="http://127.0.0.1:8317" \
-      ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-6" \
-      ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5" \
-      ANTHROPIC_DEFAULT_HAIKU_MODEL="glm-4.7" \
-      ANTHROPIC_AUTH_TOKEN="sk-dummy" \
-      API_TIMEOUT_MS="3000000" \
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1" \
-      "$CLAUDE_BIN" --settings "$SETTINGS_JSON" "${CLAUDE_ARGS[@]}"
-  fi
-  exec env \
-    MOSHI_NOTIFY=1 \
-    HUB_PORT="$HUB_PORT" \
-    HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" \
-    CC_G2_ORIG_STATUSLINE_CMD="$ORIG_STATUSLINE_CMD" \
-    ANTHROPIC_BASE_URL="http://127.0.0.1:8317" \
-    ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-6" \
-    ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5" \
-    ANTHROPIC_DEFAULT_HAIKU_MODEL="glm-4.7" \
-    ANTHROPIC_AUTH_TOKEN="sk-dummy" \
-    API_TIMEOUT_MS="3000000" \
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1" \
-    "$CLAUDE_BIN" --settings "$SETTINGS_JSON"
 fi
 
 if [ "${#CLAUDE_ARGS[@]}" -gt 0 ]; then

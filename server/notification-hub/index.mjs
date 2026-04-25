@@ -650,6 +650,8 @@ async function handlePermissionRequestHook(req, res) {
   const toolInput = p.tool_input || {}
   const cwd = getString(p.cwd)
   const sessionId = getString(p.session_id)
+  const agentSource = getString(req.headers['x-agent-source']) === 'codex' ? 'codex' : 'claude-code'
+  const approvalSource = agentSource === 'codex' ? 'codex-hook' : 'claude-code-hook'
 
   const title = toolName
   let preview = buildToolPreview(toolName, toolInput)
@@ -677,12 +679,12 @@ async function handlePermissionRequestHook(req, res) {
   const threadId = `permission_${projectSlug}_${sessionSlug}_${Date.now()}`
 
   const { approval } = await createApproval({
-    source: 'claude-code-hook',
+    source: approvalSource,
     toolName,
     toolInput,
     toolId: '',
     cwd,
-    agentName: 'claude-code',
+    agentName: agentSource,
     title,
     body: preview,
     threadId,
@@ -691,7 +693,7 @@ async function handlePermissionRequestHook(req, res) {
       tmuxTarget,
       sessionLabel: deriveSessionLabel(tmuxTarget),
       sessionId,
-      agentName: 'claude-code',
+      agentName: agentSource,
     },
   })
 

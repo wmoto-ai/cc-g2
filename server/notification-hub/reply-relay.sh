@@ -126,9 +126,11 @@ run_in_dir() {
   "$@"
 }
 
-# Claude 系プロセス判定: "claude" or セマンティックバージョン (e.g. 2.1.52)
-is_claude_cmd() {
-  [[ "$1" == "claude" || "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+# Agent 系プロセス判定:
+# - Claude Code native install can show as "claude" or a semantic version.
+# - Codex CLI installed via npm/pnpm can show as "codex" or "node".
+is_agent_cmd() {
+  [[ "$1" == "claude" || "$1" == "codex" || "$1" == "node" || "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
 # notification metadata + ペイン情報から最適な tmux ターゲットを1回の awk で解決
@@ -142,6 +144,7 @@ resolve_tmux_target_by_metadata() {
   local v
   v="$(printf '%s' "${notification_agent_name}" | tr '[:upper:]' '[:lower:]')"
   [[ "$v" == *claude* ]] && hint="claude"
+  [[ "$v" == *codex* ]] && hint="codex"
 
   [[ -z "$cwd" && -z "$hint" && -z "$project" ]] && return 1
 
@@ -154,23 +157,29 @@ resolve_tmux_target_by_metadata() {
       gsub(/[^a-z0-9_-]/, "-", t)
       return t
     }
-    function is_agent(c) { return (c=="claude" || c ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) }
+    function is_agent(c) { return (c=="claude" || c=="codex" || c=="node" || c ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) }
     function is_shell(c) { return (c=="zsh" || c=="bash") }
     function is_candidate(c) { return is_agent(c) || is_shell(c) }
+    function agent_hint_match(c, h) {
+      if (h == "") return 0
+      if (h == "claude") return (c=="claude" || c ~ /^[0-9]+\.[0-9]+\.[0-9]+$/)
+      if (h == "codex") return (c=="codex" || c=="node")
+      return 0
+    }
     function project_match(session, proj,    slug) {
       if (proj == "") return 0
       slug = slugify(proj)
-      return (session ~ ("^g2-" slug "-[0-9a-f]{4}(-[0-9]+)?$")) || (session == ("cc-g2-" slug))
+      return (session ~ ("^g2-" slug "-[0-9a-f]{4}(-codex)?(-[0-9]+)?$")) || (session == ("cc-g2-" slug))
     }
     function session_label_match(session, proj, label,    slug, wanted) {
       if (!project_match(session, proj) || label == "") return 0
       slug = slugify(proj)
       if (label == "#1") {
-        return (session ~ ("^g2-" slug "-[0-9a-f]{4}$")) || (session == ("cc-g2-" slug))
+        return (session ~ ("^g2-" slug "-[0-9a-f]{4}(-codex)?$")) || (session == ("cc-g2-" slug))
       }
       wanted = substr(label, 2)
       if (wanted ~ /^[0-9]+$/) {
-        return session ~ ("^g2-" slug "-[0-9a-f]{4}-" wanted "$")
+        return session ~ ("^g2-" slug "-[0-9a-f]{4}(-codex)?-" wanted "$")
       }
       return 0
     }
@@ -180,7 +189,7 @@ resolve_tmux_target_by_metadata() {
       has_project = project_match(session, project)
       has_session_label = session_label_match(session, project, session_label)
       has_cwd = (cwd != "" && index(cwd, $5) == 1)
-      has_hint = (hint != "" && is_agent($2))
+      has_hint = agent_hint_match($2, hint)
       shell_score = is_shell($2) ? 1 : 0
       agent_score = is_agent($2) ? 1 : 0
       score = has_session_label * 100 + has_project * 20 + has_cwd * 10 + has_hint * 4 + agent_score * 2 + shell_score
@@ -202,7 +211,7 @@ resolve_tmux_target() {
     local cmd
     cmd="$(tmux display-message -p -t "$notification_tmux_target" '#{pane_current_command}' 2>/dev/null || true)"
     if [[ -n "$cmd" ]]; then
-      if is_claude_cmd "$cmd" || [[ "$cmd" == "zsh" || "$cmd" == "bash" ]]; then
+      if is_agent_cmd "$cmd" || [[ "$cmd" == "zsh" || "$cmd" == "bash" ]]; then
         printf '%s' "$notification_tmux_target"
         return 0
       fi
