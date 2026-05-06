@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import http from 'node:http'
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..')
 const TEST_HUB_TOKEN = 'test-hub-token'
+let notifierArgsFile = ''
 
 function randomPort() {
   return 10000 + Math.floor(Math.random() * 50000)
@@ -40,14 +41,45 @@ async function waitForPendingApprovals(base, predicate, expectedCount, timeoutMs
   return data.items.filter(predicate)
 }
 
+async function waitForNotifierArgs(predicate, timeoutMs = 4000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    let raw = ''
+    try {
+      raw = await readFile(notifierArgsFile, 'utf8')
+    } catch {
+      raw = ''
+    }
+    if (predicate(raw)) return raw
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  try {
+    return await readFile(notifierArgsFile, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
 describe('Notification Hub — Permission Request HTTP Hook Endpoint', () => {
   /** @type {import('node:child_process').ChildProcess} */
   let hubProc
   let hubBase = ''
   let tmpDataDir = ''
+  let tmpBinDir = ''
 
   beforeAll(async () => {
     tmpDataDir = await mkdtemp(path.join(tmpdir(), 'hub-hook-test-'))
+    tmpBinDir = await mkdtemp(path.join(tmpdir(), 'hub-hook-bin-'))
+    notifierArgsFile = path.join(tmpDataDir, 'terminal-notifier-args.log')
+    const notifierPath = path.join(tmpBinDir, 'terminal-notifier')
+    await writeFile(
+      notifierPath,
+      `#!/bin/sh
+printf '%s\\n' "$@" >> ${JSON.stringify(notifierArgsFile)}
+`,
+      'utf8',
+    )
+    await chmod(notifierPath, 0o755)
     const port = randomPort()
     hubBase = `http://127.0.0.1:${port}`
 
@@ -62,6 +94,7 @@ describe('Notification Hub — Permission Request HTTP Hook Endpoint', () => {
         HUB_PERMISSION_THREAD_DEDUP_MS: '200',
         NTFY_BASE_URL: '',
         HUB_REPLY_RELAY_CMD: '',
+        PATH: `${tmpBinDir}${path.delimiter}${process.env.PATH || ''}`,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -88,6 +121,7 @@ describe('Notification Hub — Permission Request HTTP Hook Endpoint', () => {
       if (!hubProc.killed) hubProc.kill('SIGKILL')
     }
     await rm(tmpDataDir, { recursive: true, force: true }).catch(() => {})
+    await rm(tmpBinDir, { recursive: true, force: true }).catch(() => {})
   })
 
   it('POST /api/hooks/permission-request — creates approval and notification', async () => {
@@ -427,6 +461,86 @@ describe('Notification Hub — Permission Request HTTP Hook Endpoint', () => {
     if (pending) {
       await postJson(hubBase, `/api/approvals/${pending.id}/decide`, { decision: 'approve' })
     }
+    await hookPromise
+  })
+
+  it('POST /api/hooks/permission-request — apply_patch preview keeps real patch lines', async () => {
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: src/app.ts',
+      '@@',
+      '-const x = 1',
+      '+const x = 2',
+      '*** End Patch',
+      '',
+    ].join('\n')
+    const hookBody = {
+      session_id: 'apply-patch-preview-test',
+      cwd: '/tmp/apply-patch-preview',
+      tool_name: 'apply_patch',
+      tool_input: { command: patch },
+    }
+
+    const hookPromise = postJson(hubBase, '/api/hooks/permission-request', hookBody)
+    await new Promise((r) => setTimeout(r, 500))
+
+    const { data: notifs } = await getJson(hubBase, '/api/notifications?limit=100')
+    const match = notifs.items.find((n) => n.title === 'apply_patch')
+    expect(match).toBeDefined()
+
+    const { data: detail } = await getJson(hubBase, `/api/notifications/${match.id}`)
+    expect(detail.item.fullText).toContain('Files:\n- edit src/app.ts')
+    expect(detail.item.fullText).toContain('*** Begin Patch\n*** Update File: src/app.ts')
+    expect(detail.item.fullText).toContain('-const x = 1\n+const x = 2')
+    expect(detail.item.fullText).not.toContain('\\n')
+
+    const notifierArgs = await waitForNotifierArgs((raw) =>
+      raw.includes('apply_patch approval pending') &&
+      raw.includes('http://127.0.0.1:') &&
+      raw.includes('/ui'),
+    )
+    expect(notifierArgs).toContain('-open')
+    expect(notifierArgs).not.toContain(TEST_HUB_TOKEN)
+
+    const [pending] = await waitForPendingApprovals(
+      hubBase,
+      (a) => a.toolName === 'apply_patch' && a.cwd === '/tmp/apply-patch-preview',
+      1,
+    )
+    expect(pending).toBeDefined()
+    await postJson(hubBase, `/api/approvals/${pending.id}/decide`, { decision: 'approve' })
+    await hookPromise
+  })
+
+  it('POST /api/hooks/permission-request — apply_patch preview skips empty command fallback', async () => {
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: src/fallback.ts',
+      '@@',
+      '-const fallback = false',
+      '+const fallback = true',
+      '*** End Patch',
+    ].join('\n')
+    const hookBody = {
+      session_id: 'apply-patch-fallback-test',
+      cwd: '/tmp/apply-patch-fallback',
+      tool_name: 'apply_patch',
+      tool_input: { command: '', patch },
+    }
+
+    const hookPromise = postJson(hubBase, '/api/hooks/permission-request', hookBody)
+    const [pending] = await waitForPendingApprovals(
+      hubBase,
+      (a) => a.toolName === 'apply_patch' && a.cwd === '/tmp/apply-patch-fallback',
+      1,
+    )
+    expect(pending).toBeDefined()
+
+    const { data: detail } = await getJson(hubBase, `/api/notifications/${pending.notificationId}`)
+    expect(detail.item.fullText).toContain('Files:\n- edit src/fallback.ts')
+    expect(detail.item.fullText).toContain('-const fallback = false\n+const fallback = true')
+
+    await postJson(hubBase, `/api/approvals/${pending.id}/decide`, { decision: 'approve' })
     await hookPromise
   })
 

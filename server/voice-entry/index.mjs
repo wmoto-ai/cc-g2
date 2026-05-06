@@ -51,6 +51,10 @@ const OUTPUT_INSTRUCTION = [
   'Prefer one short Japanese sentence, or two very short sentences at most.',
   'If a task would require long work, say briefly that it is too long for this UI and ask the user to narrow the request.',
 ].join(' ')
+const CODEX_TRIGGER_PATTERN =
+  /(?<![A-Za-z0-9_])(?:--codex|codex|code[\s　-]*x)(?![A-Za-z0-9_])|(?:コーデックス|コード[\s　-]*エックス|コード[\s　-]*x)/i
+const CODEX_TRIGGER_CLEANUP_PATTERN =
+  /(?<![A-Za-z0-9_])(?:--codex|codex|code[\s　-]*x)(?![A-Za-z0-9_])|(?:コーデックス|コード[\s　-]*エックス|コード[\s　-]*x)/gi
 const DEDUP_WINDOW_MS = 1000
 let _lastRequest = { content: '', time: 0, response: null }
 
@@ -192,7 +196,7 @@ function normalizeVoicePrompt(text) {
     .replace(/\b(z\s*repos?|zee\s*repos?)\b/gi, ' ')
     .replace(/\b(repos?|repo)\b/gi, ' ')
     .replace(/\b(cc\s*-?\s*g2|cg2|ccg\s*two|c c g 2|g2)\b/gi, ' ')
-    .replace(/\b(--codex|codex|code\s*x)\b/gi, ' ')
+    .replace(CODEX_TRIGGER_CLEANUP_PATTERN, ' ')
     .replace(/[&％%]/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim()
@@ -200,7 +204,7 @@ function normalizeVoicePrompt(text) {
 }
 
 function detectAgentMode(text) {
-  return /(^|\s)(--codex|codex|code\s*x)(?=$|\s)/i.test(String(text || '')) ? 'codex' : 'claude'
+  return CODEX_TRIGGER_PATTERN.test(String(text || '')) ? 'codex' : 'claude'
 }
 
 function normalizeForMatch(text) {

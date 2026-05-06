@@ -601,6 +601,8 @@ const HOOK_POLL_INTERVAL_MS = 2_000
 function buildToolPreview(toolName, toolInput) {
   if (toolName === 'Bash') {
     return toolInput?.command || ''
+  } else if (toolName === 'apply_patch') {
+    return buildApplyPatchPreview(toolInput)
   } else if (toolName === 'Edit') {
     const file = toolInput?.file_path || ''
     const old = (toolInput?.old_string || '').slice(0, 2000)
@@ -615,11 +617,57 @@ function buildToolPreview(toolName, toolInput) {
   }
 }
 
+function buildApplyPatchPreview(toolInput) {
+  const patch = getApplyPatchRawString(toolInput)
+  if (patch === null) return JSON.stringify(toolInput || {}).slice(0, 2000)
+
+  const fileLines = []
+  const seen = new Set()
+  for (const line of patch.split(/\r?\n/)) {
+    const match = line.match(/^\*\*\* (Add|Update|Delete) File: (.+)$/)
+    if (match) {
+      const label = match[1] === 'Add' ? 'add' : match[1] === 'Update' ? 'edit' : 'delete'
+      const key = `${label}:${match[2]}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        fileLines.push(`- ${label} ${match[2]}`)
+      }
+    }
+  }
+
+  const patchLines = patch
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .slice(0, 80)
+    .map((line) => (line.length > 160 ? `${line.slice(0, 159)}…` : line))
+    .join('\n')
+
+  const summary = fileLines.length > 0
+    ? ['Files:', ...fileLines.slice(0, 12), ''].join('\n')
+    : ''
+  const truncated = patch.split(/\r?\n/).length > 80 ? '\n…' : ''
+  return `${summary}${patchLines}${truncated}`.slice(0, 4000)
+}
+
+function getApplyPatchRawString(toolInput) {
+  for (const key of ['command', 'input', 'patch']) {
+    const value = toolInput?.[key]
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return null
+}
+
+function buildApprovalUiUrl() {
+  return `http://127.0.0.1:${port}/ui`
+}
+
 function spawnLocalNotification(toolName) {
   try {
+    const approvalUrl = buildApprovalUiUrl()
     const child = spawn('terminal-notifier', [
       '-title', 'Permission',
-      '-message', toolName,
+      '-message', `${toolName} approval pending`,
+      '-open', approvalUrl,
       '-sound', 'Glass',
     ], { timeout: 5000, stdio: 'ignore' })
     child.on('error', () => {}) // コマンド未導入時の ENOENT を無視

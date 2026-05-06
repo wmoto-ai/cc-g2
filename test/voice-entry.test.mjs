@@ -270,6 +270,69 @@ exec ${JSON.stringify(process.execPath)} ${JSON.stringify(claudeStub)} "$@"
     expect(lastSession.agentMode).toBe('codex')
   })
 
+  it('does not treat media codecs requests as Codex trigger', async () => {
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TEST_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openclaw',
+        messages: [{ role: 'user', content: 'alpha tool で audio codecs の調査して' }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(extractContent(data)).toContain('alpha-tool')
+
+    const lastSession = JSON.parse(await readFile(lastSessionFile, 'utf8'))
+    expect(lastSession.sessionName).toBe('g2-alpha-tool-stub')
+    expect(lastSession.agentMode).toBe('claude')
+  })
+
+  it('starts a Codex session when codex is adjacent to Japanese text', async () => {
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TEST_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openclaw',
+        messages: [{ role: 'user', content: 'alpha tool をcodexで修正して' }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(extractContent(data)).toContain('新しいCodexセッションを開始しました')
+
+    const lastSession = JSON.parse(await readFile(lastSessionFile, 'utf8'))
+    expect(lastSession.sessionName).toBe('g2-alpha-tool-stub-codex')
+    expect(lastSession.agentMode).toBe('codex')
+  })
+
+  it('starts a Codex session when voice transcription uses Japanese codex spelling', async () => {
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TEST_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openclaw',
+        messages: [{ role: 'user', content: 'alpha tool ディレクトリでコーデックス。修正して' }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(extractContent(data)).toContain('新しいCodexセッションを開始しました')
+
+    const lastSession = JSON.parse(await readFile(lastSessionFile, 'utf8'))
+    expect(lastSession.sessionName).toBe('g2-alpha-tool-stub-codex')
+    expect(lastSession.agentMode).toBe('codex')
+  })
+
   it('continues latest session when follow-up voice request refers to current work', async () => {
     await writeFile(
       lastSessionFile,

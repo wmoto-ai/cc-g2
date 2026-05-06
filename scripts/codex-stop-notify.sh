@@ -41,11 +41,6 @@ if [ -z "$HOOK_INPUT" ]; then
   exit 0
 fi
 
-if ! command -v jq >/dev/null 2>&1; then
-  echo "[g2] codex-stop-notify: jq not found; skipping stop notification" >&2
-  exit 0
-fi
-
 CURRENT_STEP="parse_transport"
 HUB_PORT="${HUB_PORT:-8787}"
 HUB_URL="${HUB_URL:-http://127.0.0.1:${HUB_PORT}}"
