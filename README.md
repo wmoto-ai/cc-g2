@@ -216,8 +216,10 @@ pnpm test:watch
 
 - Run `cc-g2 doctor` to check dependencies and service health
 - **After a PC restart, run `cc-g2 !`** to restart all services — Hub and Voice Entry tokens can get out of sync after a reboot
+- To open the Approval Dashboard, run `cat tmp/notification-hub/hub-auth-token` and replace `<token>` in `http://127.0.0.1:8787/ui?token=<token>`. Treat the token URL as sensitive because it may be saved in browser history.
 - If Voice Entry won't start: check `cc-g2 status` and make sure `CC_G2_VOICE_ENTRY_ENABLED=0` is not set in `.env.local`
 - If Even App can't connect: verify the Bearer token with `cat tmp/voice-entry/voice-entry-token` and check Tailscale connectivity
+- If config changes are not reflected, restart the infra with `cc-g2 !`. From outside the tmux session, use `cc-g2 stop && cc-g2`
 
 ## Links
 
