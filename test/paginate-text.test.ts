@@ -159,3 +159,58 @@ describe('createGlassesUI startup result handling', () => {
     expect(ui.hasRenderedPage(conn as never)).toBe(true)
   })
 })
+
+describe('isAskQuestionShort / buildAskQuestionFullText', () => {
+  it('短い質問テキストは short と判定される', () => {
+    const ui = createGlassesUI()
+    const q = { question: 'はい/いいえ？', header: '', options: [{ label: 'はい', description: '' }], multiSelect: false }
+    expect(ui.isAskQuestionShort(q)).toBe(true)
+  })
+
+  it('150バイト超の質問テキストは long と判定される', () => {
+    const ui = createGlassesUI()
+    const longText = 'あ'.repeat(51) // 51 × 3 = 153 bytes > 150
+    const q = { question: longText, header: '', options: [{ label: 'はい', description: '' }], multiSelect: false }
+    expect(ui.isAskQuestionShort(q)).toBe(false)
+  })
+
+  it('buildAskQuestionFullText に質問テキストと選択肢が含まれる', () => {
+    const ui = createGlassesUI()
+    const q = {
+      question: 'この返信でいいですか？',
+      header: '',
+      options: [
+        { label: 'はい', description: '送信する' },
+        { label: 'いいえ', description: '修正する' },
+      ],
+      multiSelect: false,
+    }
+    const text = ui.buildAskQuestionFullText(q, 0, 1)
+    expect(text).toContain('この返信でいいですか？')
+    expect(text).toContain('はい: 送信する')
+    expect(text).toContain('いいえ: 修正する')
+    expect(text).toContain('--- 選択肢 ---')
+  })
+
+  it('buildAskQuestionFullText で複数質問のインデックスが表示される', () => {
+    const ui = createGlassesUI()
+    const q = { question: 'テスト質問', header: '', options: [], multiSelect: false }
+    const text = ui.buildAskQuestionFullText(q, 1, 3)
+    expect(text).toContain('[2/3]')
+  })
+
+  it('長い質問テキストの fullText がページネーション可能', () => {
+    const ui = createGlassesUI()
+    const longQuestion = 'あ'.repeat(500) // 1500 bytes
+    const q = {
+      question: longQuestion,
+      header: '',
+      options: [{ label: 'OK', description: '' }],
+      multiSelect: false,
+    }
+    const fullText = ui.buildAskQuestionFullText(q, 0, 1)
+    const pageCount = ui.getDetailPageCount(fullText)
+    expect(pageCount).toBeGreaterThan(1)
+    expect(byteLen(fullText)).toBeGreaterThan(999)
+  })
+})

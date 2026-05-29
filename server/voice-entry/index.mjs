@@ -52,9 +52,9 @@ const OUTPUT_INSTRUCTION = [
   'If a task would require long work, say briefly that it is too long for this UI and ask the user to narrow the request.',
 ].join(' ')
 const CODEX_TRIGGER_PATTERN =
-  /(?<![A-Za-z0-9_])(?:--codex|codex|code[\s　-]*x)(?![A-Za-z0-9_])|(?:コーデックス|コード[\s　-]*エックス|コード[\s　-]*x)/i
+  /(?<![A-Za-z0-9_])(?:--codex|codex|codecs|code[\s　-]*x)(?![A-Za-z0-9_])|(?:コーデックス|コード[\s　-]*エックス|コード[\s　-]*x)/i
 const CODEX_TRIGGER_CLEANUP_PATTERN =
-  /(?<![A-Za-z0-9_])(?:--codex|codex|code[\s　-]*x)(?![A-Za-z0-9_])|(?:コーデックス|コード[\s　-]*エックス|コード[\s　-]*x)/gi
+  /(?<![A-Za-z0-9_])(?:--codex|codex|codecs|code[\s　-]*x)(?![A-Za-z0-9_])|(?:コーデックス|コード[\s　-]*エックス|コード[\s　-]*x)/gi
 const DEDUP_WINDOW_MS = 1000
 let _lastRequest = { content: '', time: 0, response: null }
 

@@ -232,15 +232,17 @@ detect_agent_mode() {
   while [ $# -gt 0 ]; do
     case "$1" in
       new|--new|'!')
+        shift
         ;;
       codex|--codex|--native-codex|-codex)
         printf 'codex'
         return
         ;;
       *)
+        printf 'claude'
+        return
         ;;
     esac
-    shift
   done
   printf 'claude'
 }

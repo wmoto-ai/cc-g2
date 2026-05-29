@@ -89,12 +89,12 @@ derive_session_label() {
   if [[ "$session" =~ -([0-9]+)$ ]]; then
     local suffix="${BASH_REMATCH[1]}"
     local prefix="${session%-${suffix}}"
-    if [[ "$prefix" =~ -[0-9a-f]{4}(-codex)?$ ]]; then
+    if [[ "$prefix" =~ -[0-9a-f]{4}$ ]]; then
       printf '#%s' "$suffix"
       return 0
     fi
   fi
-  if [[ "$session" =~ -[0-9a-f]{4}(-codex)?$ ]]; then
+  if [[ "$session" =~ -[0-9a-f]{4}$ ]]; then
     printf '#1'
   fi
 }

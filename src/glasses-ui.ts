@@ -26,6 +26,10 @@ type ApprovalRequest = {
   options: string[]
 }
 
+// ヘッダー（52px, isEventCapture=0で非スクロール）に収まるバイト上限。
+// 超える質問は先にページネーション付き詳細画面で全文を表示する。
+const ASK_QUESTION_SHORT_THRESHOLD = 150
+
 /** AskUserQuestion の質問データ（Hub metadata から取得） */
 export type AskQuestionData = {
   question: string
@@ -36,7 +40,7 @@ export type AskQuestionData = {
 
 /** G2ディスプレイ上の通知UIの状態 */
 export type NotificationUIState = {
-  screen: 'idle' | 'list' | 'detail' | 'detail-actions' | 'ask-question' | 'reply-recording' | 'reply-confirm' | 'reply-sending'
+  screen: 'idle' | 'list' | 'detail' | 'detail-actions' | 'ask-question' | 'ask-question-detail' | 'reply-recording' | 'reply-confirm' | 'reply-sending'
   items: NotificationItem[]
   selectedIndex: number
   /** detail画面のページ送り用（fullTextを複数ページに分割） */
@@ -608,6 +612,33 @@ export function createGlassesUI() {
     },
 
     /**
+     * AskUserQuestion の質問本文が短いかを判定（[i/n]プレフィックスは含まない）。
+     * 短い場合は質問+選択肢の複合画面、長い場合は先にページネーション付き詳細表示。
+     */
+    isAskQuestionShort(questionData: AskQuestionData): boolean {
+      return byteLen(questionData.question) <= ASK_QUESTION_SHORT_THRESHOLD
+    },
+
+    /**
+     * AskUserQuestion の質問テキスト全文を詳細表示用に組み立てる。
+     * 質問本文＋選択肢ラベル・説明を含む。
+     */
+    buildAskQuestionFullText(questionData: AskQuestionData, questionIndex: number, totalQuestions: number): string {
+      const parts: string[] = []
+      const qNum = totalQuestions > 1 ? `[${questionIndex + 1}/${totalQuestions}] ` : ''
+      parts.push(`${qNum}${questionData.question}`)
+      if (questionData.options.length > 0) {
+        parts.push('')
+        parts.push('--- 選択肢 ---')
+        for (const opt of questionData.options) {
+          const desc = opt.description ? `: ${opt.description}` : ''
+          parts.push(`• ${opt.label}${desc}`)
+        }
+      }
+      return parts.join('\n')
+    },
+
+    /**
      * 通知詳細からのアクション選択（SDK標準ListContainer）
      * ※実機ではスクロール方向が物理操作と逆になる
      */
@@ -671,11 +702,14 @@ export function createGlassesUI() {
       }
 
       const qNum = totalQuestions > 1 ? `[${questionIndex + 1}/${totalQuestions}] ` : ''
-      const headerText = `${qNum}${questionData.question}`
 
       const optionLabels = questionData.options.map((o) => o.label)
-      // 「その他」(音声入力) と「◀ 戻る」を追加
       optionLabels.push('その他（音声）', '◀ 戻る')
+
+      // SDK上限: TextContainer + ListContainer 各コンテンツが 999 bytes 以内
+      // ヘッダーテキストが長すぎるとファームウェアがページ全体を破棄するため切り詰める
+      const headerBudget = 999 - byteLen(qNum)
+      const headerText = `${qNum}${truncateByBytes(questionData.question, headerBudget)}`
 
       const headerContainer = new TextContainerProperty({
         xPosition: 8,

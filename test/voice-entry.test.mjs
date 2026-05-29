@@ -270,7 +270,7 @@ exec ${JSON.stringify(process.execPath)} ${JSON.stringify(claudeStub)} "$@"
     expect(lastSession.agentMode).toBe('codex')
   })
 
-  it('does not treat media codecs requests as Codex trigger', async () => {
+  it('starts a Codex session when voice transcription uses codecs', async () => {
     const res = await fetch(`${base}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -279,16 +279,16 @@ exec ${JSON.stringify(process.execPath)} ${JSON.stringify(claudeStub)} "$@"
       },
       body: JSON.stringify({
         model: 'openclaw',
-        messages: [{ role: 'user', content: 'alpha tool で audio codecs の調査して' }],
+        messages: [{ role: 'user', content: 'codecs で alpha tool の修正して' }],
       }),
     })
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(extractContent(data)).toContain('alpha-tool')
+    expect(extractContent(data)).toContain('新しいCodexセッションを開始しました')
 
     const lastSession = JSON.parse(await readFile(lastSessionFile, 'utf8'))
-    expect(lastSession.sessionName).toBe('g2-alpha-tool-stub')
-    expect(lastSession.agentMode).toBe('claude')
+    expect(lastSession.sessionName).toBe('g2-alpha-tool-stub-codex')
+    expect(lastSession.agentMode).toBe('codex')
   })
 
   it('starts a Codex session when codex is adjacent to Japanese text', async () => {

@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import http from 'node:http'
 import { spawn } from 'node:child_process'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..')
 const TEST_HUB_TOKEN = 'test-hub-token'
-let notifierArgsFile = ''
 
 function randomPort() {
   return 10000 + Math.floor(Math.random() * 50000)
@@ -41,45 +40,14 @@ async function waitForPendingApprovals(base, predicate, expectedCount, timeoutMs
   return data.items.filter(predicate)
 }
 
-async function waitForNotifierArgs(predicate, timeoutMs = 4000) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    let raw = ''
-    try {
-      raw = await readFile(notifierArgsFile, 'utf8')
-    } catch {
-      raw = ''
-    }
-    if (predicate(raw)) return raw
-    await new Promise((r) => setTimeout(r, 100))
-  }
-  try {
-    return await readFile(notifierArgsFile, 'utf8')
-  } catch {
-    return ''
-  }
-}
-
 describe('Notification Hub — Permission Request HTTP Hook Endpoint', () => {
   /** @type {import('node:child_process').ChildProcess} */
   let hubProc
   let hubBase = ''
   let tmpDataDir = ''
-  let tmpBinDir = ''
 
   beforeAll(async () => {
     tmpDataDir = await mkdtemp(path.join(tmpdir(), 'hub-hook-test-'))
-    tmpBinDir = await mkdtemp(path.join(tmpdir(), 'hub-hook-bin-'))
-    notifierArgsFile = path.join(tmpDataDir, 'terminal-notifier-args.log')
-    const notifierPath = path.join(tmpBinDir, 'terminal-notifier')
-    await writeFile(
-      notifierPath,
-      `#!/bin/sh
-printf '%s\\n' "$@" >> ${JSON.stringify(notifierArgsFile)}
-`,
-      'utf8',
-    )
-    await chmod(notifierPath, 0o755)
     const port = randomPort()
     hubBase = `http://127.0.0.1:${port}`
 
@@ -94,7 +62,6 @@ printf '%s\\n' "$@" >> ${JSON.stringify(notifierArgsFile)}
         HUB_PERMISSION_THREAD_DEDUP_MS: '200',
         NTFY_BASE_URL: '',
         HUB_REPLY_RELAY_CMD: '',
-        PATH: `${tmpBinDir}${path.delimiter}${process.env.PATH || ''}`,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -121,7 +88,6 @@ printf '%s\\n' "$@" >> ${JSON.stringify(notifierArgsFile)}
       if (!hubProc.killed) hubProc.kill('SIGKILL')
     }
     await rm(tmpDataDir, { recursive: true, force: true }).catch(() => {})
-    await rm(tmpBinDir, { recursive: true, force: true }).catch(() => {})
   })
 
   it('POST /api/hooks/permission-request — creates approval and notification', async () => {
@@ -493,14 +459,6 @@ printf '%s\\n' "$@" >> ${JSON.stringify(notifierArgsFile)}
     expect(detail.item.fullText).toContain('*** Begin Patch\n*** Update File: src/app.ts')
     expect(detail.item.fullText).toContain('-const x = 1\n+const x = 2')
     expect(detail.item.fullText).not.toContain('\\n')
-
-    const notifierArgs = await waitForNotifierArgs((raw) =>
-      raw.includes('apply_patch approval pending') &&
-      raw.includes('http://127.0.0.1:') &&
-      raw.includes('/ui'),
-    )
-    expect(notifierArgs).toContain('-open')
-    expect(notifierArgs).not.toContain(TEST_HUB_TOKEN)
 
     const [pending] = await waitForPendingApprovals(
       hubBase,

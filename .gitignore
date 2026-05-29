@@ -16,3 +16,16 @@ CLAUDE.md
 
 # Local agents / skills
 .agents/
+
+# Codex local instructions / MCP config (personal, like CLAUDE.md)
+AGENTS.md
+.mcp.json
+
+# Experimental sandboxes (include node_modules)
+experiments/
+
+# Even Hub package build artifact
+*.ehpk
+
+# G2 screenshots
+glasses_*.png
