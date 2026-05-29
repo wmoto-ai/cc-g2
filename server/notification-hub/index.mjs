@@ -658,7 +658,8 @@ function getApplyPatchRawString(toolInput) {
 }
 
 function buildApprovalUiUrl() {
-  return `http://127.0.0.1:${port}/ui`
+  const base = `http://127.0.0.1:${port}/ui`
+  return hubAuthToken ? `${base}?token=${encodeURIComponent(hubAuthToken)}` : base
 }
 
 function spawnLocalNotification(toolName) {

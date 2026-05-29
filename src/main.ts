@@ -118,6 +118,7 @@ let replyStopInFlight = false
 let lastIdleEventAt = 0
 let idleTapDuringRender = false
 let idleOpenBlockedUntil = 0
+let listOpenedFromIdleAt = 0
 let pendingNotifEvent: EvenHubEvent | null = null
 let pendingNotifEventFlushTimer: ReturnType<typeof setTimeout> | null = null
 let notifEventInFlight = false
@@ -133,6 +134,9 @@ const DETAIL_SCROLL_COOLDOWN_MS = 250
 const TAP_SCROLL_SUPPRESS_MS = 150
 const IDLE_DOUBLE_TAP_WINDOW_MS = 700
 const IDLE_REOPEN_COOLDOWN_MS = 4000
+// idle→一覧を開いた直後は、同じダブルタップ動作の「2発目」が一覧の
+// クローズ（待機復帰）として誤発火しやすい。この窓の間はクローズを握り潰す。
+const LIST_OPEN_CLOSE_GUARD_MS = 800
 
 function escapeHtml(value: string): string {
   return value
@@ -149,6 +153,7 @@ function screenLabel(screen: NotificationUIState['screen']): string {
     case 'detail': return 'detail'
     case 'detail-actions': return 'actions'
     case 'ask-question': return 'ask-q'
+    case 'ask-question-detail': return 'ask-q-detail'
     case 'reply-recording': return 'recording'
     case 'reply-confirm': return 'confirm'
     case 'reply-sending': return 'sending'
@@ -542,7 +547,7 @@ let pendingListRefresh = false
 
 function canAutoOpenForScreen(screen: NotificationUIState['screen']): boolean {
   // 録音/送信中は割り込まない。他の画面では新着優先で一覧へ寄せる。
-  return screen !== 'reply-recording' && screen !== 'reply-confirm' && screen !== 'reply-sending' && screen !== 'ask-question'
+  return screen !== 'reply-recording' && screen !== 'reply-confirm' && screen !== 'reply-sending' && screen !== 'ask-question' && screen !== 'ask-question-detail'
 }
 
 async function flushPendingNotificationUi(reason: string) {
@@ -663,6 +668,14 @@ function updateNotifInfo() {
       `[操作] ${notifState.detailItem.title}`,
       '0=コメント, 1=Approve, 2=Deny, 3=◀ 戻る',
       'Click=選択, DblClick=詳細に戻る',
+    ].join('\n')
+  } else if (notifState.screen === 'ask-question-detail') {
+    const q = notifState.askQuestions[notifState.askQuestionIndex]
+    infoEl.textContent = [
+      `[質問詳細 ${notifState.askQuestionIndex + 1}/${notifState.askQuestions.length}]`,
+      `Page: ${notifState.detailPageIndex + 1}/${notifState.detailPages.length}`,
+      q?.question?.slice(0, 80) ?? '',
+      'Scroll=ページ送り, 最終→選択肢, DblClick=戻る',
     ].join('\n')
   } else if (notifState.screen === 'ask-question') {
     const q = notifState.askQuestions[notifState.askQuestionIndex]
@@ -857,6 +870,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           return
         }
         lastIdleEventAt = 0
+        listOpenedFromIdleAt = Date.now()
         notifState.screen = 'list'
         notifState.selectedIndex = 0
         await glassesUI.showNotificationList(connection!, notifState.items)
@@ -877,6 +891,14 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
 
       if (notifState.screen === 'list') {
         if (isDoubleTapEventType(eventType)) {
+          // idle→一覧を開いた直後の誤クローズ防止: 開いた瞬間のダブルタップは
+          // 1発で一覧を開くため、同ジェスチャの残りイベントがここでクローズを
+          // 踏むと「一瞬一覧が見えてすぐ消える」フラッシュになる。短時間は無視する。
+          const sinceOpen = Date.now() - listOpenedFromIdleAt
+          if (sinceOpen < LIST_OPEN_CLOSE_GUARD_MS) {
+            log(`[event] 一覧クローズ抑制: open直後 ${sinceOpen}ms (オープン動作の残りイベント)`)
+            return
+          }
           await enterIdleScreen('通知一覧を閉じて待機に戻る (double tap)')
           return
         }
@@ -901,15 +923,26 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             const detail = await notifClient.detail(item.id)
             notifState.detailItem = detail
 
-            // AskUserQuestion: 詳細画面をスキップして選択肢画面へ直接遷移
+            // AskUserQuestion: 短い質問は選択肢画面へ直接、長い質問は詳細画面を先に表示
             if (isAskUserQuestionNotification(detail)) {
               const questions = extractAskQuestions(detail)
               if (questions.length > 0) {
                 notifState.askQuestions = questions
                 notifState.askQuestionIndex = 0
                 notifState.askAnswers = {}
-                notifState.screen = 'ask-question'
-                await glassesUI.showAskUserQuestion(connection!, questions[0], 0, questions.length)
+                if (glassesUI.isAskQuestionShort(questions[0])) {
+                  notifState.screen = 'ask-question'
+                  await glassesUI.showAskUserQuestion(connection!, questions[0], 0, questions.length)
+                } else {
+                  const fullText = glassesUI.buildAskQuestionFullText(questions[0], 0, questions.length)
+                  const pageCount = glassesUI.getDetailPageCount(fullText)
+                  notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
+                  notifState.detailPageIndex = 0
+                  notifState.screen = 'ask-question-detail'
+                  const syntheticDetail = { ...detail, title: 'AskUserQuestion', fullText }
+                  await glassesUI.showNotificationDetail(connection!, syntheticDetail, 0, pageCount)
+                  lastDetailScrollAt = Date.now()
+                }
                 clearPendingScrollEvent()
                 updateNotifInfo()
                 return
@@ -1060,6 +1093,67 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             return
           }
         }
+      } else if (notifState.screen === 'ask-question-detail') {
+        // AskUserQuestion 詳細画面（長い質問テキストのページネーション表示）
+        if (!notifState.detailItem) return
+        if (normalized.source === 'list') return
+        const aqPageCount = notifState.detailPages.length
+        if (isDoubleTapEventType(eventType)) {
+          log('AskQuestion詳細: double tap → リストに戻る')
+          notifState.screen = 'list'
+          notifState.detailItem = null
+          notifState.askQuestions = []
+          notifState.askQuestionIndex = 0
+          notifState.askAnswers = {}
+          notifState.selectedIndex = 0
+          await glassesUI.showNotificationList(connection!, notifState.items)
+          updateNotifInfo()
+          return
+        }
+        if (shouldIgnoreDetailScroll(eventType)) return
+
+        if (eventType === G2_EVENT.SCROLL_TOP) {
+          if (notifState.detailPageIndex > 0) {
+            notifState.detailPageIndex--
+            const currentQ = notifState.askQuestions[notifState.askQuestionIndex]
+            const fullText = glassesUI.buildAskQuestionFullText(currentQ, notifState.askQuestionIndex, notifState.askQuestions.length)
+            const syntheticDetail = { ...notifState.detailItem, title: 'AskUserQuestion', fullText }
+            await glassesUI.showNotificationDetail(connection!, syntheticDetail, notifState.detailPageIndex, aqPageCount)
+            clearPendingScrollEvent()
+            lastDetailScrollAt = Date.now()
+          } else {
+            log('AskQuestion詳細: 最初のページ → リストに戻る')
+            notifState.screen = 'list'
+            notifState.detailItem = null
+            notifState.askQuestions = []
+            notifState.askQuestionIndex = 0
+            notifState.askAnswers = {}
+            notifState.selectedIndex = 0
+            await glassesUI.showNotificationList(connection!, notifState.items)
+          }
+          updateNotifInfo()
+          return
+        }
+
+        if (eventType === G2_EVENT.SCROLL_BOTTOM) {
+          if (notifState.detailPageIndex < aqPageCount - 1) {
+            notifState.detailPageIndex++
+            const currentQ = notifState.askQuestions[notifState.askQuestionIndex]
+            const fullText = glassesUI.buildAskQuestionFullText(currentQ, notifState.askQuestionIndex, notifState.askQuestions.length)
+            const syntheticDetail = { ...notifState.detailItem, title: 'AskUserQuestion', fullText }
+            await glassesUI.showNotificationDetail(connection!, syntheticDetail, notifState.detailPageIndex, aqPageCount)
+            clearPendingScrollEvent()
+            lastDetailScrollAt = Date.now()
+          } else {
+            log('AskQuestion詳細: 最終ページ → 選択肢画面へ')
+            const currentQ = notifState.askQuestions[notifState.askQuestionIndex]
+            notifState.screen = 'ask-question'
+            await glassesUI.showAskUserQuestion(connection!, currentQ, notifState.askQuestionIndex, notifState.askQuestions.length)
+            clearPendingScrollEvent()
+          }
+          updateNotifInfo()
+          return
+        }
       } else if (notifState.screen === 'ask-question') {
         // AskUserQuestion 選択肢画面
         if (!notifState.detailItem) return
@@ -1085,14 +1179,27 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           // optionCount+0: 「その他（音声）」, optionCount+1: 「◀ 戻る」
 
           if (index === optionCount + 1) {
-            // ◀ 戻る
-            log('AskUserQuestion: 戻る → リスト')
-            notifState.screen = 'list'
-            notifState.detailItem = null
-            notifState.askQuestions = []
-            notifState.askQuestionIndex = 0
-            notifState.askAnswers = {}
-            await glassesUI.showNotificationList(connection!, notifState.items)
+            // ◀ 戻る: 長い質問は詳細画面に戻る、短い質問はリストに戻る
+            if (!glassesUI.isAskQuestionShort(currentQ)) {
+              log('AskUserQuestion: 戻る → 詳細画面')
+              const fullText = glassesUI.buildAskQuestionFullText(currentQ, notifState.askQuestionIndex, notifState.askQuestions.length)
+              const pageCount = glassesUI.getDetailPageCount(fullText)
+              notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
+              notifState.detailPageIndex = 0
+              notifState.screen = 'ask-question-detail'
+              const syntheticDetail = { ...notifState.detailItem!, title: 'AskUserQuestion', fullText }
+              await glassesUI.showNotificationDetail(connection!, syntheticDetail, 0, pageCount)
+              clearPendingScrollEvent()
+              lastDetailScrollAt = Date.now()
+            } else {
+              log('AskUserQuestion: 戻る → リスト')
+              notifState.screen = 'list'
+              notifState.detailItem = null
+              notifState.askQuestions = []
+              notifState.askQuestionIndex = 0
+              notifState.askAnswers = {}
+              await glassesUI.showNotificationList(connection!, notifState.items)
+            }
             updateNotifInfo()
             return
           }
@@ -1125,7 +1232,20 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             if (notifState.askQuestionIndex < notifState.askQuestions.length - 1) {
               notifState.askQuestionIndex++
               const nextQ = notifState.askQuestions[notifState.askQuestionIndex]
-              await glassesUI.showAskUserQuestion(connection!, nextQ, notifState.askQuestionIndex, notifState.askQuestions.length)
+              if (glassesUI.isAskQuestionShort(nextQ)) {
+                notifState.screen = 'ask-question'
+                await glassesUI.showAskUserQuestion(connection!, nextQ, notifState.askQuestionIndex, notifState.askQuestions.length)
+              } else {
+                const fullText = glassesUI.buildAskQuestionFullText(nextQ, notifState.askQuestionIndex, notifState.askQuestions.length)
+                const pageCount = glassesUI.getDetailPageCount(fullText)
+                notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
+                notifState.detailPageIndex = 0
+                notifState.screen = 'ask-question-detail'
+                const syntheticDetail = { ...notifState.detailItem!, title: 'AskUserQuestion', fullText }
+                await glassesUI.showNotificationDetail(connection!, syntheticDetail, 0, pageCount)
+                lastDetailScrollAt = Date.now()
+              }
+              clearPendingScrollEvent()
               updateNotifInfo()
               return
             }
