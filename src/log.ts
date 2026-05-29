@@ -18,16 +18,18 @@ export function log(message: string): void {
     }
   }
 
-  // 通知フロー診断のため、通知系ログだけHubへミラーする（非同期・失敗は無視）
-  if (!message.startsWith('通知')) return
+  // 画面遷移・G2描画・イベントを含む全ログをHubへミラーする（非同期・失敗は無視）。
+  // 以前は「通知」始まりのログだけ送っていたため、startup描画失敗(code=1)や
+  // 待機/一覧の画面遷移・[event]系がPC側に届かず、原因追跡が不能だった。
   const baseUrl = appConfig.notificationHubUrl
   if (!baseUrl) return
+  const level = /失敗|エラー|error|code=[1-3]/.test(message) ? 'error' : 'info'
   void fetch(`${baseUrl}/api/client-events`, {
     method: 'POST',
     headers: createHubHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       source: 'web-client',
-      level: 'info',
+      level,
       message: line,
       context: {
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
