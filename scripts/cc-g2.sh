@@ -507,6 +507,17 @@ check_deps() {
     warn "tailscale が見つかりません（QRコード表示に必要。SHOW_QR=0 で省略可）"
   fi
 }
+
+# --version / --help は依存チェックより前に処理（tmux などが無くても確認できるように）
+case "${1:-}" in
+  --version|-v|version)
+    ver="$(node -p "require('${G2_PROJECT_DIR}/package.json').version" 2>/dev/null \
+      || sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${G2_PROJECT_DIR}/package.json" | head -1)"
+    echo "cc-g2 ${ver:-unknown}"
+    exit 0 ;;
+  --help|-h|help)
+    print_usage; exit 0 ;;
+esac
 check_deps
 CLAUDE_BIN="$(resolve_claude_bin)"
 CODEX_BIN="$(resolve_codex_bin)"
@@ -838,12 +849,6 @@ run_internal_command "${1:-}" "${@:2}"
 case "${1:-}" in
   new|--new) FORCE_NEW_SESSION=1; shift ;;
   codex)   AGENT_MODE="codex"; shift; set -- --codex "$@" ;;
-  --help|-h|help) print_usage; exit 0 ;;
-  --version|-v|version)
-    ver="$(node -p "require('${G2_PROJECT_DIR}/package.json').version" 2>/dev/null \
-      || sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${G2_PROJECT_DIR}/package.json" | head -1)"
-    echo "cc-g2 ${ver:-unknown}"
-    exit 0 ;;
   stop)    cmd_stop; exit 0 ;;
   status)  cmd_status; exit 0 ;;
   doctor)  cmd_doctor; exit 0 ;;
