@@ -15,6 +15,7 @@
 #   cc-g2 --codex          # Codex CLI + G2
 #   cc-g2 --native-codex   # Codex CLI + G2 (互換 alias)
 #   cc-g2 --help           # ヘルプ表示
+#   cc-g2 --version        # バージョン表示
 #   cc-g2 !                # インフラ再起動してから Claude Code + G2
 #   cc-g2 stop             # G2 インフラ全停止
 #   cc-g2 status           # 状態確認
@@ -87,6 +88,7 @@ Options:
   --new            Force a new tmux session
   !                Restart Hub/Vite/Voice Entry before launch
   --help, -h       Show this help
+  --version, -v    Show cc-g2 version
 
 Environment:
   SHOW_QR=0        Hide QR code
@@ -837,6 +839,11 @@ case "${1:-}" in
   new|--new) FORCE_NEW_SESSION=1; shift ;;
   codex)   AGENT_MODE="codex"; shift; set -- --codex "$@" ;;
   --help|-h|help) print_usage; exit 0 ;;
+  --version|-v|version)
+    ver="$(node -p "require('${G2_PROJECT_DIR}/package.json').version" 2>/dev/null \
+      || sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${G2_PROJECT_DIR}/package.json" | head -1)"
+    echo "cc-g2 ${ver:-unknown}"
+    exit 0 ;;
   stop)    cmd_stop; exit 0 ;;
   status)  cmd_status; exit 0 ;;
   doctor)  cmd_doctor; exit 0 ;;
