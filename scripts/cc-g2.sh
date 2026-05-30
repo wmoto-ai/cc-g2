@@ -953,7 +953,7 @@ if [ "$USE_NATIVE_CODEX" -eq 1 ]; then
     CC_G2_TMUX_TARGET="${CC_G2_TMUX_TARGET:-}"
   )
   CODEX_ARGS=(
-    --enable codex_hooks
+    --enable hooks
     -c "hooks=${CODEX_HOOKS_CONFIG}"
   )
   if [ "${#CLAUDE_ARGS[@]}" -gt 0 ]; then
