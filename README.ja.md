@@ -98,6 +98,8 @@ git clone から入れた場合は、clone したリポジトリのディレク�
 | 変数 | 用途 |
 |------|------|
 | `GROQ_API_KEY` | G2 音声コメント用 STT（Groq、オプション） |
+| `OPENAI_API_KEY` | OpenAI Realtime Whisper 用（オプション） |
+| `VITE_STT_PROVIDER` | STT エンジン: `groq`（デフォルト、REST バッチ）または `openai-realtime`（WebSocket ストリーミング） |
 | `CC_G2_VOICE_ENTRY_ENABLED=0` | Voice Entry を無効化（デフォルト: 有効） |
 
 `.env.local` を変えたら `cc-g2 !` でインフラを再起動します。tmux セッション外からは `cc-g2 stop && cc-g2` で再起動してください。

@@ -93,6 +93,8 @@ Key settings in `.env.local`:
 | Variable | Purpose |
 |----------|---------|
 | `GROQ_API_KEY` | STT for voice comments (Groq, optional) |
+| `OPENAI_API_KEY` | OpenAI Realtime Whisper STT (optional) |
+| `VITE_STT_PROVIDER` | STT engine: `groq` (default, REST batch) or `openai-realtime` (WebSocket streaming) |
 | `CC_G2_VOICE_ENTRY_ENABLED=0` | Disable Voice Entry (enabled by default) |
 | `CC_G2_REPO_ROOTS` | Repository scan path (default: `~/Repos`) |
 
