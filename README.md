@@ -1,21 +1,21 @@
-# cc-g2 — Smart glasses companion for Claude Code
+# cc-g2 — Smart glasses companion for Claude Code / Codex CLI
 
 [日本語 README](./README.ja.md)
 
-`cc-g2` connects Even G2 smart glasses to Claude Code so you can review permission prompts, send voice comments, and check completion notifications without staying at your desk.
+`cc-g2` connects Even G2 smart glasses to Claude Code / Codex CLI so you can review permission prompts, send voice comments, and check completion notifications without staying at your desk.
 
 ![cc-g2 simulator demo](./docs/screenshots/cc-g2-simulator.gif)
 
-Even G2 can open notifications, record a voice reply, and send that response back to Claude Code through the local Hub.
+Even G2 can open notifications, record a voice reply, and send that response back to Claude Code or Codex CLI through the local Hub.
 
 ## What works today
 
-- Approve / deny Claude Code permission requests from G2
+- Approve / deny Claude Code / Codex CLI permission requests from G2
 - Answer Claude Code `AskUserQuestion` prompts from G2 option lists
 - Send voice comments back to Claude Code
-- Check completion notifications on G2
+- Check Claude Code / Codex CLI completion notifications on G2
 - Browse recent notifications and details on the glasses
-- Launch Claude Code sessions by voice via Even App custom AI
+- Launch Claude Code / Codex CLI sessions by voice via Even App custom AI
 
 ## Current limitations
 
@@ -27,21 +27,21 @@ Even G2 can open notifications, record a voice reply, and send that response bac
 ## Architecture
 
 ```text
-PC (Claude Code + Hub + Voice Entry) <-> iPhone (Even App + Vite UI) <-> Even G2
+PC (Claude Code / Codex CLI + Hub + Voice Entry) <-> iPhone (Even App + Vite UI) <-> Even G2
 ```
 
 - **Notification Hub** (`:8787`) handles notifications and approval flow
 - **Vite UI** (`:5173`) provides the G2 companion web UI
 - **Voice Entry** (`:8797`) launches sessions by voice (optional)
-- **Claude Code HTTP hook** sends permission requests to the Hub
+- **Claude Code HTTP hook / Codex command hook** sends permission requests to the Hub
 
-The Hub is intended to mirror and answer explicit permission prompts. It should not broaden Claude Code permissions or override user / org policy outside the normal `approve` / `deny` flow.
+The Hub is intended to mirror and answer explicit permission prompts. It should not broaden Claude Code / Codex CLI permissions or override user / org policy outside the normal `approve` / `deny` flow.
 
 ## Recommended setup
 
 `cc-g2` works best with a setup based on **tmux + Tailscale + iPhone + Even G2**.
 
-- **tmux** keeps the Claude Code session alive and supports the reply relay flow
+- **tmux** keeps the Claude Code / Codex CLI session alive and supports the reply relay flow
 - **Tailscale** makes it easier for the iPhone to reach the local Hub safely. You can also use a local IP on the same WiFi, but Tailscale is convenient for remote or cross-network access
 - **Moshi or similar helper notifications** are optional, but useful when you are away from your desk
 - **G2 notifications** are useful for checking pending approvals and completions
@@ -64,14 +64,11 @@ Reference: <https://getmoshi.app/articles/mac-remote-endless-agent-setup>
 
 ### 1. Install
 
-Private GitHub Packages install:
+GitHub direct install:
 
 ```bash
-pnpm config set @wmoto-ai:registry https://npm.pkg.github.com
-pnpm add -g @wmoto-ai/cc-g2
+pnpm add -g github:wmoto-ai/cc-g2
 ```
-
-Private GitHub Packages access requires a GitHub token with package read permission in your npm config.
 
 Source checkout install:
 
@@ -141,7 +138,7 @@ This starts the Hub and Vite UI, injects Claude Code hooks, prepares a tmux sess
 4. Choose **Send / Retry / Cancel** after STT finishes
 5. **Swipe cancels recording** while recording is active
 
-Voice comments are returned to Claude Code as **deny + instruction text**.
+Voice comments are returned to Claude Code / Codex CLI as **deny + instruction text**.
 
 ### AskUserQuestion flow
 
@@ -157,7 +154,7 @@ Selected answers are sent back through the Hub as an answer payload for the matc
 
 ## Voice Entry
 
-Launch Claude Code sessions by speaking to G2 via Even App's custom AI agent.
+Launch Claude Code / Codex CLI sessions by speaking to G2 via Even App's custom AI agent. Include `codex` in your speech to start a Codex CLI session.
 
 ### Setup
 
