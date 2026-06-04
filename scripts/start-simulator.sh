@@ -4,7 +4,8 @@ set -euo pipefail
 # Even G2 シミュレータ起動（スマホ画面 + G2 グラス画面）
 # pnpm dlx で evenhub-simulator を直接実行する。even-dev は不要。
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PORT="${SIMULATOR_PORT:-5173}"
 HUB_PORT="${HUB_PORT:-8787}"
 SIMULATOR_VERSION="${SIMULATOR_VERSION:-0.5.3}"
@@ -14,31 +15,11 @@ LOG_DIR="/tmp/cc-g2-sim"
 HUB_AUTH_TOKEN_FILE="${REPO_DIR}/tmp/notification-hub/hub-auth-token"
 HUB_AUTH_TOKEN="${HUB_AUTH_TOKEN:-}"
 
-read_env_file_var() {
-  local file="$1"
-  local key="$2"
-  [ -f "$file" ] || return 1
-  awk -F= -v target="$key" '
-    $1 == target {
-      sub(/^[^=]*=/, "", $0)
-      print $0
-      exit
-    }
-  ' "$file"
-}
+# shellcheck source=lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
 
-resolve_groq_api_key() {
-  if [ -n "${GROQ_API_KEY:-}" ]; then
-    printf '%s' "$GROQ_API_KEY"
-    return
-  fi
-  local value=""
-  value="$(read_env_file_var "$REPO_DIR/.env.local" "GROQ_API_KEY" || true)"
-  [ -n "$value" ] || value="$(read_env_file_var "$REPO_DIR/.env" "GROQ_API_KEY" || true)"
-  printf '%s' "$value"
-}
-
-GROQ_API_KEY_RESOLVED="$(resolve_groq_api_key)"
+GROQ_API_KEY_RESOLVED="$(resolve_env_var "GROQ_API_KEY" "GROQ_API_KEY" "$REPO_DIR")"
+OPENAI_API_KEY_RESOLVED="$(resolve_env_var "OPENAI_API_KEY" "OPENAI_API_KEY" "$REPO_DIR")"
 
 mkdir -p "$CACHE_DIR" "$LOG_DIR"
 
@@ -52,7 +33,7 @@ if ! curl -s --max-time 1 "http://127.0.0.1:${HUB_PORT}/api/health" >/dev/null 2
   ALLOWED_ORIGINS="http://127.0.0.1:${PORT},http://localhost:${PORT}"
   (
     cd "$REPO_DIR"
-    nohup env HUB_BIND=0.0.0.0 HUB_PORT=$HUB_PORT HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" GROQ_API_KEY="$GROQ_API_KEY_RESOLVED" HUB_ALLOWED_ORIGINS="$ALLOWED_ORIGINS" \
+    nohup env HUB_BIND=0.0.0.0 HUB_PORT=$HUB_PORT HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" GROQ_API_KEY="$GROQ_API_KEY_RESOLVED" OPENAI_API_KEY="$OPENAI_API_KEY_RESOLVED" HUB_ALLOWED_ORIGINS="$ALLOWED_ORIGINS" \
       HUB_REPLY_RELAY_CMD='bash server/notification-hub/reply-relay.sh' \
       RELAY_ENABLE_TMUX=1 \
       RELAY_TMUX_AUTO_DETECT=1 \

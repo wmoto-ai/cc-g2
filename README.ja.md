@@ -1,21 +1,21 @@
-# cc-g2 — Claude Code / Codex CLI を G2 から操作するスマートグラス連携
+# cc-g2 — Claude Code を声で操作するスマートグラス連携
 
 [English README](./README.md)
 
-Even G2 と Claude Code / Codex CLI をつなぎ、承認・拒否・音声コメント・完了通知確認をグラスから行うためのハンズフリー companion layer です。PC の前にいなくても、iPhone 経由で G2 から agent の permission request に応答できます。
+Even G2 と Claude Code をつなぎ、承認・拒否・音声コメント・完了通知確認をグラスから行うためのハンズフリー companion layer です。PC の前にいなくても、iPhone 経由で G2 から Claude Code の permission request に応答できます。
 
 ![cc-g2 simulator demo](./docs/screenshots/cc-g2-simulator.gif)
 
-Even G2 で通知を開き、音声で返答し、その内容を Claude Code や Codex CLI に返す流れをシミュレーターで確認できます。
+Even G2 で通知を開き、音声で返答し、その内容を Claude Code に返す流れをシミュレーターで確認できます。
 
 ## できること
 
-- **承認 / 拒否**: Claude Code / Codex CLI の tool permission request に G2 から応答
+- **承認 / 拒否**: Claude Code の tool permission request に G2 から応答
 - **AskUserQuestion への回答**: Claude Code の質問に、G2 の選択肢リストから回答
 - **音声コメント**: 拒否時に音声で指示を返す
-- **完了通知の確認**: Claude Code / Codex CLI の完了通知を G2 で確認
+- **完了通知の確認**: Claude Code の完了通知を G2 で確認
 - **通知一覧 / 詳細表示**: G2 で最近の通知を確認
-- **音声でセッション起動**: G2 に話しかけて Claude Code / Codex CLI セッションを起動（Even App カスタム AI 連携）
+- **音声でセッション起動**: G2 に話しかけて Claude Code セッションを起動（Even App カスタム AI 連携）
 
 ## 現在の制限
 
@@ -29,7 +29,7 @@ Even G2 で通知を開き、音声で返答し、その内容を Claude Code �
 ```text
 ┌──────────────┐   Tailscale    ┌──────────────┐   BLE    ┌─────────┐
 │ PC (Mac)     │ ◄───────────► │ iPhone       │ ◄──────► │ Even G2 │
-│ Claude/Codex │               │ Even App     │          │         │
+│ Claude Code  │               │ Even App     │          │         │
 │ Hub (:8787)  │               │ Vite (:5173) │          │         │
 │ Voice(:8797) │               │              │          │         │
 └──────────────┘               └──────────────┘          └─────────┘
@@ -38,15 +38,15 @@ Even G2 で通知を開き、音声で返答し、その内容を Claude Code �
 - **Notification Hub** (`:8787`): 通知と承認の中央管理
 - **Vite** (`:5173`): G2 向け Web UI
 - **Voice Entry** (`:8797`): 音声セッション起動（オプション）
-- **Claude Code HTTP hook / Codex command hook**: PermissionRequest を Hub に送信
+- **Claude Code HTTP hook**: PermissionRequest を Hub に送信
 
-Hub は明示的な permission prompt を中継して応答するためのもので、Claude Code / Codex CLI のユーザー設定や組織ポリシーを上書きして独自に広く許可するものではありません。
+Hub は明示的な permission prompt を中継して応答するためのもので、Claude Code のユーザー設定や組織ポリシーを上書きして独自に広く許可するものではありません。
 
 ## 推奨構成
 
 `cc-g2` は、**tmux + Tailscale + iPhone + Even G2** の構成で使うと安定しやすいです。
 
-- **tmux**: Claude Code / Codex CLI セッションを維持し、reply relay の前提になります
+- **tmux**: Claude Code セッションを維持し、reply relay の前提になります
 - **Tailscale**: iPhone からローカル Hub へ安全にアクセスしやすくなります。同じ WiFi ならローカル IP でも接続可能ですが、外出先や別ネットワークからの接続には Tailscale が便利です
 - **Moshi などの補助通知**: 必須ではありませんが、離席中の通知確認を補助しやすくなります
 - **通知運用**: G2 で承認待ちや完了を確認できます
@@ -69,11 +69,14 @@ Hub は明示的な permission prompt を中継して応答するためのもの
 
 ### 1. インストール
 
-GitHub から直接入れる場合:
+Private GitHub Packages から入れる場合:
 
 ```bash
-pnpm add -g github:wmoto-ai/cc-g2
+pnpm config set @wmoto-ai:registry https://npm.pkg.github.com
+pnpm add -g @wmoto-ai/cc-g2
 ```
+
+Private GitHub Packages から入れるには、package read 権限を持つ GitHub token を npm config に設定しておく必要があります。
 
 git clone から入れる場合:
 
@@ -115,16 +118,6 @@ cc-g2
 3. tmux セッション作成
 4. QR コード表示
 5. Claude Code 起動
-
-Codex CLI で起動する場合:
-
-```bash
-cc-g2 --codex
-# または
-cc-g2 codex
-```
-
-この場合は Codex CLI の hook を注入し、Codex CLI を G2 hook 付きで起動します。
 
 ### 4. 最初の確認
 
@@ -197,7 +190,7 @@ StatusLine 連携は既定で有効です。`~/.claude/settings.json` に `statu
 4. STT 結果を確認して **送信 / 再録 / キャンセル** を選ぶ
 5. **スワイプで録音キャンセル** も可能
 
-コメントは Claude Code / Codex CLI に **拒否 + 指示テキスト** として返ります。
+コメントは Claude Code に **拒否 + 指示テキスト** として返ります。
 
 ### AskUserQuestion への回答
 
@@ -214,21 +207,21 @@ Claude Code が `AskUserQuestion` を出した場合、cc-g2 は通常の通知�
 ## 承認の流れ
 
 ```text
-Claude Code / Codex CLI ─ PermissionRequest hook ─► Hub
+Claude Code ─ POST /api/hooks/permission-request ─► Hub
      │                                              │
      │                                   通知 / 承認待ちを作成
      │                                              │
      │◄──────────── 承認 / 拒否 / コメント ─────── G2
 ```
 
-- **承認**: Claude Code / Codex CLI がそのまま実行
-- **拒否**: Claude Code / Codex CLI が中止
+- **承認**: Claude Code がそのまま実行
+- **拒否**: Claude Code が中止
 - **コメント**: 拒否 + 指示テキストとして返却
-- **Hub 未起動**: agent 側の通常 UI / エラー処理へフォールバック
+- **Hub 未起動**: Claude Code は通常の PC ダイアログへフォールバック
 
 ## 音声セッション起動 (Voice Entry)
 
-G2 の「Hey Even」で Claude Code / Codex CLI セッションを音声起動できます。Even App のカスタム AI 機能を使い、発話内容からリポジトリを自動判定してセッションを開始します。発話に `codex` を含めると Codex CLI セッションとして起動します。
+G2 の「Hey Even」で Claude Code セッションを音声起動できます。Even App のカスタム AI 機能を使い、発話内容からリポジトリを自動判定してセッションを開始します。
 
 ### 有効化
 
@@ -328,7 +321,7 @@ cc-g2/
 - まず `cc-g2 doctor` で依存関係と Hub / Vite の状態を確認
 - 調子が悪いときは `cc-g2 !` でインフラを再起動
 - **PC 再起動後は `cc-g2 !` が必要**: Hub や Voice Entry のトークンが不整合になるため、PC 再起動後は必ず `cc-g2 !` で再起動してください
-- Approval Dashboard を開く場合は `cat tmp/notification-hub/hub-auth-token` で確認した値を `http://127.0.0.1:8787/ui?token=<token>` の `<token>` に入れて開きます。token 付き URL はブラウザ履歴に残る可能性があるため、秘密として扱ってください
+- Approval Dashboard を開く場合は `TOKEN=$(cat tmp/notification-hub/hub-auth-token)` の後に `http://127.0.0.1:8787/ui?token=${TOKEN}` を使います
 - **Voice entry が起動しない**: `cc-g2 status` で確認。`.env.local` に `CC_G2_VOICE_ENTRY_ENABLED=0` が設定されていないか確認し、`cc-g2 !` で再起動
 - **Even App から接続できない**: `cat tmp/voice-entry/voice-entry-token` でトークンを確認。Even App の Bearer トークンと一致しているか、Tailscale で iPhone → Mac に到達できるかも確認
 - **設定変更が反映されない**: `cc-g2 !` でインフラを再起動。tmux セッション外からは `cc-g2 stop && cc-g2`

@@ -13,18 +13,25 @@ function readInt(value: string | undefined, fallback: number): number {
 export const appConfig = {
   sttEnabled: readBool(import.meta.env.VITE_STT_ENABLED, true),
   sttForceError: readBool(import.meta.env.VITE_STT_FORCE_ERROR, false),
+  sttProvider: ((import.meta.env.VITE_STT_PROVIDER as string)?.trim() || 'groq') as 'groq' | 'openai-realtime',
   groqModel: (import.meta.env.VITE_GROQ_MODEL as string | undefined)?.trim() || 'whisper-large-v3',
   hubAuthToken: (import.meta.env.VITE_HUB_TOKEN as string | undefined)?.trim() ?? '',
   notificationHubUrl: (import.meta.env.VITE_HUB_URL as string | undefined)?.trim() || `http://${globalThis.location?.hostname || '127.0.0.1'}:8787`,
   notificationAutoOpenOnNew: readBool(import.meta.env.VITE_NOTIF_AUTO_OPEN_ON_NEW, true),
   notificationIdleDimMode: readBool(import.meta.env.VITE_NOTIF_IDLE_DIM_MODE, true),
-  notificationPollIntervalMs: readInt(import.meta.env.VITE_NOTIF_POLL_INTERVAL_MS, 1500),
+  notificationPollIntervalMs: readInt(import.meta.env.VITE_NOTIF_POLL_INTERVAL_MS, 3000),
   /** Web Speech API の比較診断を有効にする（開発時のみ） */
   webSpeechCompare: readBool(import.meta.env.VITE_WEBSPEECH_COMPARE, false),
+  /** クライアントの全ログを Hub にミラー送信する（診断時のみ。待機中の余計な送信を避けるためデフォルト無効） */
+  logMirror: readBool(import.meta.env.VITE_LOG_MIRROR, false),
 }
 
 export function canUseGroqStt() {
-  return appConfig.sttEnabled
+  return appConfig.sttEnabled && appConfig.sttProvider === 'groq'
+}
+
+export function canUseOpenaiRealtimeStt() {
+  return appConfig.sttEnabled && appConfig.sttProvider === 'openai-realtime'
 }
 
 export function createHubHeaders(extra?: HeadersInit): HeadersInit {

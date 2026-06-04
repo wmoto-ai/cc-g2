@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { concatChunks, encodePcm16kMonoS16leToWav } from '../src/audio/wav'
-import { formatForG2Display } from '../src/g2-format'
+import { formatForG2Display, formatForG2ScrollableText } from '../src/g2-format'
 
 describe('formatForG2Display', () => {
   it('returns fallback text for empty input', () => {
@@ -10,6 +10,21 @@ describe('formatForG2Display', () => {
 
   it('wraps text into multiple lines without exceeding max lines', () => {
     expect(formatForG2Display('alpha beta gamma delta epsilon', 2, 12)).toBe('alpha beta\ngamma delta…')
+  })
+})
+
+describe('formatForG2ScrollableText', () => {
+  it('keeps long STT text scrollable instead of truncating it to a few lines', () => {
+    const text = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ')
+    const formatted = formatForG2ScrollableText(text)
+    expect(formatted).toBe(text)
+    expect(formatted).not.toContain('\n')
+  })
+
+  it('caps scrollable STT text by UTF-8 bytes with an ellipsis', () => {
+    const formatted = formatForG2ScrollableText('あ'.repeat(400), 30)
+    expect(new TextEncoder().encode(formatted).length).toBeLessThanOrEqual(30)
+    expect(formatted.endsWith('…')).toBe(true)
   })
 })
 

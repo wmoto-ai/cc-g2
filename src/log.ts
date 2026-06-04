@@ -24,6 +24,9 @@ export function log(message: string): void {
   const baseUrl = appConfig.notificationHubUrl
   if (!baseUrl) return
   const level = /失敗|エラー|error|code=[1-3]/.test(message) ? 'error' : 'info'
+  // info系（画面遷移・[event]系など待機中に頻発するログ）は診断モード時のみミラーする。
+  // error は常にミラーして異常追跡は維持しつつ、平常時の余計な送信を抑える。
+  if (level === 'info' && !appConfig.logMirror) return
   void fetch(`${baseUrl}/api/client-events`, {
     method: 'POST',
     headers: createHubHeaders({ 'Content-Type': 'application/json' }),

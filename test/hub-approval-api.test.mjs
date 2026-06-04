@@ -1,34 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
-
-const PROJECT_ROOT = path.resolve(import.meta.dirname, '..')
-const TEST_HUB_TOKEN = 'test-hub-token'
-
-/** Pick a random high port to avoid collisions with other tests / services. */
-function randomPort() {
-  return 10000 + Math.floor(Math.random() * 50000)
-}
-
-/** POST JSON helper */
-async function postJson(base, pathname, body) {
-  const res = await fetch(`${base}${pathname}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CC-G2-Token': TEST_HUB_TOKEN },
-    body: JSON.stringify(body),
-  })
-  return { status: res.status, data: await res.json() }
-}
-
-/** GET JSON helper */
-async function getJson(base, pathname) {
-  const res = await fetch(`${base}${pathname}`, {
-    headers: { 'X-CC-G2-Token': TEST_HUB_TOKEN },
-  })
-  return { status: res.status, data: await res.json() }
-}
+import { TEST_HUB_TOKEN, postJson, getJson, startHub, stopHub } from './helpers/hub-harness.mjs'
 
 describe('Notification Hub — Approval Broker API', () => {
   /** @type {import('node:child_process').ChildProcess} */
@@ -37,50 +8,11 @@ describe('Notification Hub — Approval Broker API', () => {
   let tmpDataDir = ''
 
   beforeAll(async () => {
-    tmpDataDir = await mkdtemp(path.join(tmpdir(), 'hub-test-'))
-    const port = randomPort()
-    hubBase = `http://127.0.0.1:${port}`
-
-    hubProc = spawn('node', ['server/notification-hub/index.mjs'], {
-      cwd: PROJECT_ROOT,
-      env: {
-        ...process.env,
-        HUB_PORT: String(port),
-        HUB_BIND: '127.0.0.1',
-        HUB_DATA_DIR: tmpDataDir,
-        HUB_AUTH_TOKEN: TEST_HUB_TOKEN,
-        HUB_PERMISSION_THREAD_DEDUP_MS: '200',
-        NTFY_BASE_URL: '',
-        HUB_REPLY_RELAY_CMD: '',
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-
-    // Wait for the health endpoint to respond (up to 8 seconds).
-    const deadline = Date.now() + 8000
-    while (Date.now() < deadline) {
-      try {
-        const res = await fetch(`${hubBase}/api/health`, { signal: AbortSignal.timeout(1000) })
-        if (res.ok) break
-      } catch {
-        // not ready yet
-      }
-      await new Promise((r) => setTimeout(r, 150))
-    }
-
-    // Final check — if health still fails, surface a useful error.
-    const check = await fetch(`${hubBase}/api/health`).then((r) => r.json())
-    expect(check.ok).toBe(true)
+    ;({ proc: hubProc, hubBase, tmpDataDir } = await startHub())
   }, 15000)
 
   afterAll(async () => {
-    if (hubProc && !hubProc.killed) {
-      hubProc.kill('SIGTERM')
-      // Give it a moment to shut down gracefully.
-      await new Promise((r) => setTimeout(r, 300))
-      if (!hubProc.killed) hubProc.kill('SIGKILL')
-    }
-    await rm(tmpDataDir, { recursive: true, force: true }).catch(() => {})
+    await stopHub(hubProc, tmpDataDir)
   })
 
   // ---------------------------------------------------------------------------

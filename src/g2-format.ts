@@ -26,3 +26,23 @@ export function formatForG2Display(text: string, maxLines = 3, maxCharsPerLine =
 
   return output.join('\n')
 }
+
+const textEncoder = new TextEncoder()
+
+export function formatForG2ScrollableText(text: string, maxBytes = 999): string {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized) return '（認識結果なし）'
+  if (textEncoder.encode(normalized).length <= maxBytes) return normalized
+
+  const ellipsis = '…'
+  const budget = Math.max(0, maxBytes - textEncoder.encode(ellipsis).length)
+  let used = 0
+  let output = ''
+  for (const char of Array.from(normalized)) {
+    const size = textEncoder.encode(char).length
+    if (used + size > budget) break
+    output += char
+    used += size
+  }
+  return output + ellipsis
+}
