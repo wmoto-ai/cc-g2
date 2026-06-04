@@ -39,7 +39,11 @@ resolve_script_path() {
 }
 
 SCRIPT_PATH="$(resolve_script_path "${BASH_SOURCE[0]}")"
-G2_PROJECT_DIR="${G2_PROJECT_DIR:-$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd -P)}"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd -P)"
+G2_PROJECT_DIR="${G2_PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd -P)}"
+
+# shellcheck source=lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
 HUB_PORT="${HUB_PORT:-8787}"
 VITE_PORT="${VITE_PORT:-5173}"
 CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
@@ -113,39 +117,16 @@ VOICE_ENTRY_REPO_ROOTS="${CC_G2_REPO_ROOTS:-}"
 VOICE_ENTRY_SCAN_DEPTH="${CC_G2_REPO_SCAN_DEPTH:-3}"
 VOICE_ENTRY_ENABLED="${CC_G2_VOICE_ENTRY_ENABLED:-}"
 
-read_env_file_var() {
-  local file="$1"
-  local key="$2"
-  [ -f "$file" ] || return 1
-  awk -F= -v target="$key" '
-    $1 == target {
-      sub(/^[^=]*=/, "", $0)
-      print $0
-      exit
-    }
-  ' "$file"
+resolve_groq_api_key() {
+  resolve_env_var "GROQ_API_KEY" "GROQ_API_KEY" "$G2_PROJECT_DIR"
 }
 
-resolve_groq_api_key() {
-  if [ -n "${GROQ_API_KEY:-}" ]; then
-    printf '%s' "$GROQ_API_KEY"
-    return
-  fi
-  local value=""
-  value="$(read_env_file_var "$G2_PROJECT_DIR/.env.local" "GROQ_API_KEY" || true)"
-  [ -n "$value" ] || value="$(read_env_file_var "$G2_PROJECT_DIR/.env" "GROQ_API_KEY" || true)"
-  printf '%s' "$value"
+resolve_openai_api_key() {
+  resolve_env_var "OPENAI_API_KEY" "OPENAI_API_KEY" "$G2_PROJECT_DIR"
 }
 
 resolve_statusline_flag() {
-  if [ -n "${CC_G2_ENABLE_STATUSLINE:-}" ]; then
-    printf '%s' "$CC_G2_ENABLE_STATUSLINE"
-    return
-  fi
-  local value=""
-  value="$(read_env_file_var "$G2_PROJECT_DIR/.env.local" "CC_G2_ENABLE_STATUSLINE" || true)"
-  [ -n "$value" ] || value="$(read_env_file_var "$G2_PROJECT_DIR/.env" "CC_G2_ENABLE_STATUSLINE" || true)"
-  printf '%s' "$value"
+  resolve_env_var "CC_G2_ENABLE_STATUSLINE" "CC_G2_ENABLE_STATUSLINE" "$G2_PROJECT_DIR"
 }
 
 secure_token_file() {
@@ -192,17 +173,13 @@ load_or_create_voice_entry_token() {
 }
 
 resolve_voice_entry_enabled() {
-  if [ -n "$VOICE_ENTRY_ENABLED" ]; then
-    printf '%s' "$VOICE_ENTRY_ENABLED"
+  local value
+  value="$(resolve_env_var "CC_G2_VOICE_ENTRY_ENABLED" "CC_G2_VOICE_ENTRY_ENABLED" "$G2_PROJECT_DIR")"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
     return
   fi
-  local from_file=""
-  from_file="$(read_env_file_var "$G2_PROJECT_DIR/.env.local" "CC_G2_VOICE_ENTRY_ENABLED" || true)"
-  [ -n "$from_file" ] || from_file="$(read_env_file_var "$G2_PROJECT_DIR/.env" "CC_G2_VOICE_ENTRY_ENABLED" || true)"
-  if [ -n "$from_file" ]; then
-    printf '%s' "$from_file"
-    return
-  fi
+  # VOICE_ENTRY_ENABLED が空でも TOKEN が設定されていれば有効
   if [ -n "${CC_G2_VOICE_ENTRY_TOKEN:-}" ]; then
     printf '1'
     return
@@ -211,21 +188,11 @@ resolve_voice_entry_enabled() {
 }
 
 resolve_repo_roots() {
-  if [ -n "$VOICE_ENTRY_REPO_ROOTS" ]; then
-    printf '%s' "$VOICE_ENTRY_REPO_ROOTS"
-    return
-  fi
-  local from_file=""
-  from_file="$(read_env_file_var "$G2_PROJECT_DIR/.env.local" "CC_G2_REPO_ROOTS" || true)"
-  [ -n "$from_file" ] || from_file="$(read_env_file_var "$G2_PROJECT_DIR/.env" "CC_G2_REPO_ROOTS" || true)"
-  if [ -n "$from_file" ]; then
-    printf '%s' "$from_file"
-    return
-  fi
-  printf '%s' "${HOME}/Repos"
+  resolve_env_var "CC_G2_REPO_ROOTS" "CC_G2_REPO_ROOTS" "$G2_PROJECT_DIR" "${HOME}/Repos"
 }
 
 GROQ_API_KEY_RESOLVED="$(resolve_groq_api_key)"
+OPENAI_API_KEY_RESOLVED="$(resolve_openai_api_key)"
 ENABLE_STATUSLINE="$(resolve_statusline_flag)"
 VOICE_ENTRY_ENABLED="$(resolve_voice_entry_enabled)"
 VOICE_ENTRY_REPO_ROOTS="$(resolve_repo_roots)"
@@ -289,29 +256,8 @@ if [ -z "$ENABLE_STATUSLINE" ]; then
   fi
 fi
 
-resolve_claude_bin() {
-  if [ -n "${CLAUDE_BIN:-}" ] && command -v "$CLAUDE_BIN" >/dev/null 2>&1; then
-    command -v "$CLAUDE_BIN"
-    return
-  fi
-  if command -v claude >/dev/null 2>&1; then
-    command -v claude
-    return
-  fi
-  printf '%s' "${CLAUDE_BIN:-claude}"
-}
-
-resolve_codex_bin() {
-  if [ -n "${CODEX_BIN:-}" ] && command -v "$CODEX_BIN" >/dev/null 2>&1; then
-    command -v "$CODEX_BIN"
-    return
-  fi
-  if command -v codex >/dev/null 2>&1; then
-    command -v codex
-    return
-  fi
-  printf '%s' "${CODEX_BIN:-codex}"
-}
+resolve_claude_bin() { resolve_bin "CLAUDE_BIN" "claude"; }
+resolve_codex_bin() { resolve_bin "CODEX_BIN" "codex"; }
 
 make_tmux_session_name() {
   local work_dir="$1"
@@ -631,6 +577,7 @@ ensure_infra() {
       HUB_PORT=$HUB_PORT \
       HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" \
       GROQ_API_KEY="$GROQ_API_KEY_RESOLVED" \
+      OPENAI_API_KEY="$OPENAI_API_KEY_RESOLVED" \
       HUB_ALLOWED_ORIGINS="$allowed_origins" \
       HUB_REPLY_RELAY_CMD='bash server/notification-hub/reply-relay.sh' \
       RELAY_ENABLE_TMUX=1 \
@@ -646,12 +593,7 @@ ensure_infra() {
       >> "$hub_log" 2>&1 &
 
     # Hub 起動待ち
-    local retries=0
-    while ! is_hub_running && [ $retries -lt 10 ]; do
-      sleep 0.5
-      retries=$((retries + 1))
-    done
-    if is_hub_running; then
+    if wait_for is_hub_running 10 0.5; then
       info "Hub: OK"
     else
       warn "Hub: 起動に時間がかかっています（バックグラウンドで継続中）"
@@ -669,12 +611,7 @@ ensure_infra() {
       ./node_modules/.bin/vite --host 0.0.0.0 --port "$VITE_PORT" \
       >> "$vite_log" 2>&1 &
 
-    local retries=0
-    while ! is_vite_running && [ $retries -lt 10 ]; do
-      sleep 0.5
-      retries=$((retries + 1))
-    done
-    if is_vite_running; then
+    if wait_for is_vite_running 10 0.5; then
       info "Vite: OK"
     else
       warn "Vite: 起動に時間がかかっています（バックグラウンドで継続中）"
@@ -699,12 +636,7 @@ ensure_infra() {
         node server/voice-entry/index.mjs \
         >> "$voice_log" 2>&1 &
 
-      local retries=0
-      while ! is_voice_entry_running && [ $retries -lt 10 ]; do
-        sleep 0.5
-        retries=$((retries + 1))
-      done
-      if is_voice_entry_running; then
+      if wait_for is_voice_entry_running 10 0.5; then
         info "Voice entry: OK"
       else
         warn "Voice entry: 起動に時間がかかっています（バックグラウンドで継続中）"
@@ -977,11 +909,17 @@ if [ "$USE_NATIVE_CODEX" -eq 1 ]; then
     "${CODEX_ARGS[@]}"
 fi
 
+CLAUDE_PERMISSION_HOOK_TIMEOUT="${CC_G2_CLAUDE_HOOK_TIMEOUT_SEC:-86400}"
+case "$CLAUDE_PERMISSION_HOOK_TIMEOUT" in
+  ''|*[!0-9]*) CLAUDE_PERMISSION_HOOK_TIMEOUT=86400 ;;
+esac
+
 SETTINGS_JSON=$(jq -nc \
   --arg hub_url "http://127.0.0.1:${HUB_PORT}" \
   --arg hub_token "$HUB_AUTH_TOKEN" \
   --arg statusline_cmd "$STATUSLINE_CMD" \
   --arg stop_cmd "bash ${STOP_NOTIFY_SCRIPT}" \
+  --argjson permission_timeout "$CLAUDE_PERMISSION_HOOK_TIMEOUT" \
   '{
     hooks: {
       PermissionRequest: [{
@@ -989,7 +927,7 @@ SETTINGS_JSON=$(jq -nc \
         hooks: [{
           type: "http",
           url: ($hub_url + "/api/hooks/permission-request"),
-          timeout: 310,
+          timeout: $permission_timeout,
           headers: {"X-Tmux-Target": "$CC_G2_TMUX_TARGET", "X-CC-G2-Token": $hub_token},
           allowedEnvVars: ["CC_G2_TMUX_TARGET"]
         }]

@@ -1,7 +1,6 @@
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
-import { createReadStream } from 'node:fs'
-import { mkdir, readdir, readFile, appendFile, stat } from 'node:fs/promises'
+import { mkdir, readFile, appendFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import {
@@ -15,6 +14,14 @@ import {
 } from './notification-utils.mjs'
 import { transcribeAudioWithGroq } from './stt.mjs'
 
+function parseBoolEnv(name) {
+  return ['1', 'true', 'yes', 'on'].includes(String(process.env[name] || '').toLowerCase())
+}
+
+function parseIntEnv(name, fallback, min = -Infinity) {
+  return Math.max(min, Number.parseInt(process.env[name] || String(fallback), 10) || fallback)
+}
+
 const host = process.env.HUB_BIND || '0.0.0.0'
 const port = Number(process.env.HUB_PORT || '8787')
 const dataDir = path.resolve(process.env.HUB_DATA_DIR || 'tmp/notification-hub')
@@ -25,36 +32,25 @@ const hubAllowedOrigins = new Set(
     .map((s) => s.trim())
     .filter(Boolean),
 )
-const hubPersistRaw = ['1', 'true', 'yes', 'on'].includes(String(process.env.HUB_PERSIST_RAW || '').toLowerCase())
-const hubPersistToolInput = ['1', 'true', 'yes', 'on'].includes(String(process.env.HUB_PERSIST_TOOL_INPUT || '').toLowerCase())
+const hubPersistRaw = parseBoolEnv('HUB_PERSIST_RAW')
+const hubPersistToolInput = parseBoolEnv('HUB_PERSIST_TOOL_INPUT')
 const groqApiKey = String(process.env.GROQ_API_KEY || '').trim()
 const groqModelDefault = String(process.env.GROQ_MODEL || 'whisper-large-v3').trim()
+const openaiApiKey = String(process.env.OPENAI_API_KEY || '').trim()
 const notificationsFile = path.join(dataDir, 'notifications.jsonl')
 const repliesFile = path.join(dataDir, 'replies.jsonl')
 const clientEventsFile = path.join(dataDir, 'client-events.jsonl')
 const hubReplyRelayCmd = String(process.env.HUB_REPLY_RELAY_CMD || '').trim()
-const hubReplyRelayTimeoutMs = Math.max(
-  1000,
-  Number.parseInt(process.env.HUB_REPLY_RELAY_TIMEOUT_MS || '15000', 10) || 15000,
-)
+const hubReplyRelayTimeoutMs = parseIntEnv('HUB_REPLY_RELAY_TIMEOUT_MS', 15000, 1000)
 const hubReplyRelaySources = new Set(
   String(process.env.HUB_REPLY_RELAY_SOURCES || 'g2,web')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
 )
-const hubPermissionThreadDedupMs = Math.max(
-  0,
-  Number.parseInt(process.env.HUB_PERMISSION_THREAD_DEDUP_MS || '8000', 10) || 8000,
-)
-const hubMaxBodyBytes = Math.max(
-  1024,
-  Number.parseInt(process.env.HUB_MAX_BODY_BYTES || '1048576', 10) || 1048576,
-)
-const hubMaxSttBodyBytes = Math.max(
-  hubMaxBodyBytes,
-  Number.parseInt(process.env.HUB_MAX_STT_BODY_BYTES || '12582912', 10) || 12582912,
-)
+const hubPermissionThreadDedupMs = parseIntEnv('HUB_PERMISSION_THREAD_DEDUP_MS', 8000, 0)
+const hubMaxBodyBytes = parseIntEnv('HUB_MAX_BODY_BYTES', 1048576, 1024)
+const hubMaxSttBodyBytes = Math.max(hubMaxBodyBytes, parseIntEnv('HUB_MAX_STT_BODY_BYTES', 12582912))
 
 /** @typedef {{id:string,source:'moshi'|'claude-code',title:string,summary:string,fullText:string,createdAt:string,replyCapable:boolean,raw?:unknown,metadata?:Record<string, unknown>}} NotificationItem */
 /** @typedef {{id:string,notificationId:string,replyText:string,createdAt:string,status:'stubbed'|'forwarded'|'failed',action?:'approve'|'deny'|'comment',resolvedAction?:'approve'|'deny'|'comment',result?:'resolved'|'relayed'|'ignored',ignoredReason?:'approval-not-pending'|'approval-link-not-found',comment?:string,source?:string,error?:string}} ReplyRecord */
@@ -82,6 +78,8 @@ const approvalsByNotificationId = new Map()
 const uiSessions = new Map()
 /** @type {{lat:number,lng:number,altitude:number|null,timestamp:string,speed:number|null,battery:number|null,receivedAt:string}|null} */
 let lastLocation = null
+/** @type {Set<import('node:http').ServerResponse>} */
+const sseClients = new Set()
 const approvalsFile = path.join(dataDir, 'approvals.jsonl')
 const UI_SESSION_COOKIE = 'cc_g2_ui_session'
 const UI_SESSION_MAX_AGE_SEC = 60 * 60 * 12
@@ -159,6 +157,16 @@ function sendText(res, statusCode, body) {
   res.end(body)
 }
 
+async function parseJsonBody(req, res, maxBytes = hubMaxBodyBytes) {
+  const rawBody = await readRequestBody(req, { maxBytes })
+  const parsed = safeJsonParse(rawBody || '{}')
+  if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') {
+    sendJson(res, 400, { ok: false, error: 'Invalid JSON body' })
+    return null
+  }
+  return parsed.value
+}
+
 function sendRequestBodyTooLarge(res, err) {
   const maxBytes =
     err && typeof err === 'object' && 'maxBytes' in err && Number.isFinite(err.maxBytes)
@@ -224,12 +232,17 @@ function requireApiAuth(req, res) {
   return false
 }
 
+const publicApiRoutes = new Set([
+  'GET /api/health',
+  'GET /api/context-status',
+  'GET /api/notifications',
+  'GET /api/events',
+  'POST /api/client-events',
+  'POST /api/location',
+])
+
 function isPublicApiRequest(method, pathname) {
-  if (method === 'GET' && pathname === '/api/health') return true
-  if (method === 'GET' && pathname === '/api/context-status') return true
-  if (method === 'GET' && pathname === '/api/notifications') return true
-  if (method === 'POST' && pathname === '/api/client-events') return true
-  if (method === 'POST' && pathname === '/api/location') return true
+  if (publicApiRoutes.has(`${method} ${pathname}`)) return true
   if (method === 'GET' && matchNotificationDetail(pathname)) return true
   return false
 }
@@ -239,23 +252,11 @@ async function addNotification(payload, logPrefix = 'notification') {
     persistRaw: hubPersistRaw,
     createId: () => randomUUID(),
   })
-  const extId =
-    item && item.metadata && typeof item.metadata.externalId === 'string'
-      ? item.metadata.externalId
-      : ''
-  const hookType =
-    item && item.metadata && typeof item.metadata.hookType === 'string'
-      ? item.metadata.hookType
-      : ''
-  const threadId =
-    item && item.metadata && typeof item.metadata.threadId === 'string'
-      ? item.metadata.threadId
-      : ''
-  const hasApprovalId =
-    item &&
-    item.metadata &&
-    (typeof item.metadata.approvalId === 'string' ||
-      typeof item.metadata.approvalId === 'number')
+  const meta = item.metadata
+  const extId = typeof meta?.externalId === 'string' ? meta.externalId : ''
+  const hookType = typeof meta?.hookType === 'string' ? meta.hookType : ''
+  const threadId = typeof meta?.threadId === 'string' ? meta.threadId : ''
+  const hasApprovalId = typeof meta?.approvalId === 'string' || typeof meta?.approvalId === 'number'
 
   // Some hook-originated notifications can arrive almost simultaneously from
   // multiple hook sources. Dedup by threadId only in a short TTL window to avoid
@@ -383,6 +384,14 @@ async function relayReplyIfConfigured(payload) {
   })
 }
 
+function areSameSession(a, b) {
+  if (!a.metadata || !b.metadata) return false
+  if (a.metadata.sessionId && a.metadata.sessionId === b.metadata.sessionId) return true
+  if (a.metadata.tmuxTarget && a.metadata.tmuxTarget === b.metadata.tmuxTarget) return true
+  if (!a.metadata.sessionId && !a.metadata.tmuxTarget && a.metadata.cwd && a.metadata.cwd === b.metadata.cwd) return true
+  return false
+}
+
 function getReplyStatus(item) {
   const approval = approvalsByNotificationId.get(item.id)
   if (approval) {
@@ -396,37 +405,44 @@ function getReplyStatus(item) {
   // PC側のコメントはHubを経由しないため、後続通知の存在で判定する
   // sessionIdがない通知（stop hookなど）はtmuxTargetとcwdで同一セッション判定
   if (item.replyCapable && item.metadata) {
-    const sid = item.metadata.sessionId
-    const tmux = item.metadata.tmuxTarget
-    const cwd = item.metadata.cwd
     const t = new Date(item.createdAt).getTime()
-    const isSameSession = (n) => {
-      if (!n.metadata) return false
-      if (sid && n.metadata.sessionId === sid) return true
-      if (tmux && n.metadata.tmuxTarget === tmux) return true
-      if (!sid && !tmux && cwd && n.metadata.cwd === cwd) return true
-      return false
-    }
     const hasNewer = notifications.some((n) =>
-      n.id !== item.id && isSameSession(n) && new Date(n.createdAt).getTime() > t,
+      n.id !== item.id && areSameSession(item, n) && new Date(n.createdAt).getTime() > t,
     )
     if (hasNewer) return 'delivered'
   }
   return undefined
 }
 
+function notificationToListItem(item) {
+  return {
+    id: item.id, source: item.source, title: item.title,
+    summary: item.summary, createdAt: item.createdAt,
+    replyCapable: item.replyCapable, metadata: item.metadata,
+    replyStatus: getReplyStatus(item),
+  }
+}
+
+function sseBroadcast(eventType, data) {
+  if (sseClients.size === 0) return
+  const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`
+  for (const client of sseClients) {
+    try { client.write(payload) } catch { sseClients.delete(client) }
+  }
+}
+
+function sseBroadcastNotificationAdded(item) {
+  sseBroadcast('notification-added', notificationToListItem(item))
+  for (const n of notifications) {
+    if (n.id === item.id) continue
+    if (!n.replyCapable || !n.metadata) continue
+    if (areSameSession(n, item)) sseBroadcast('notification-updated', notificationToListItem(n))
+  }
+}
+
 function listNotifications(limit) {
   const sorted = [...notifications].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-  return sorted.slice(0, limit).map((item) => ({
-    id: item.id,
-    source: item.source,
-    title: item.title,
-    summary: item.summary,
-    createdAt: item.createdAt,
-    replyCapable: item.replyCapable,
-    metadata: item.metadata,
-    replyStatus: getReplyStatus(item),
-  }))
+  return sorted.slice(0, limit).map(notificationToListItem)
 }
 
 async function createApproval(params) {
@@ -493,55 +509,67 @@ async function createApproval(params) {
   await appendJsonl(approvalsFile, persistedApproval(record, { persistToolInput: hubPersistToolInput }))
 
   log(`approval created id=${record.id} notificationId=${notification.id} tool=${toolName}`)
+  sseBroadcastNotificationAdded(notification)
   return { approval: record, notification }
+}
+
+function finalizeApproval(record, fields, logMessage) {
+  record.status = 'decided'
+  Object.assign(record, fields)
+  record.decidedBy = fields.decidedBy || undefined
+  appendJsonl(
+    approvalsFile,
+    persistedApproval({ ...record, _event: 'decided' }, { persistToolInput: hubPersistToolInput }),
+  ).catch((err) =>
+    log(`approval persist error ${err instanceof Error ? err.message : String(err)}`),
+  )
+  log(logMessage)
+  const notif = notificationsById.get(record.notificationId)
+  if (notif) sseBroadcast('notification-updated', notificationToListItem(notif))
+  return record
 }
 
 function resolveApproval(approvalId, decision, comment, decidedBy) {
   const record = approvalsById.get(approvalId)
   if (!record) return null
   if (record.status !== 'pending') return record
-  record.status = 'decided'
-  record.decision = decision
-  record.resolution = undefined
-  record.comment = comment || undefined
-  record.decidedBy = decidedBy || undefined
-  record.decidedAt = new Date().toISOString()
-  appendJsonl(
-    approvalsFile,
-    persistedApproval({ ...record, _event: 'decided' }, { persistToolInput: hubPersistToolInput }),
-  ).catch((err) =>
-    log(`approval persist error ${err instanceof Error ? err.message : String(err)}`),
-  )
-  log(`approval decided id=${record.id} decision=${decision} by=${decidedBy || 'unknown'}`)
-  return record
+  return finalizeApproval(record, {
+    decision,
+    resolution: undefined,
+    comment: comment || undefined,
+    decidedBy: decidedBy || undefined,
+    decidedAt: new Date().toISOString(),
+  }, `approval decided id=${record.id} decision=${decision} by=${decidedBy || 'unknown'}`)
 }
 
 function markApprovalCleanup(record, resolution, decidedBy, decidedAt = new Date().toISOString()) {
   if (!record || record.status !== 'pending') return record
-  record.status = 'decided'
-  record.decision = undefined
-  record.resolution = resolution
-  record.comment = undefined
-  record.decidedBy = decidedBy || undefined
-  record.decidedAt = decidedAt
-  record.deliveredAt = decidedAt
-  appendJsonl(
-    approvalsFile,
-    persistedApproval({ ...record, _event: 'decided' }, { persistToolInput: hubPersistToolInput }),
-  ).catch((err) =>
-    log(`approval persist error ${err instanceof Error ? err.message : String(err)}`),
-  )
-  log(`approval cleaned up id=${record.id} resolution=${resolution} by=${decidedBy || 'unknown'}`)
-  return record
+  return finalizeApproval(record, {
+    decision: undefined,
+    resolution,
+    comment: undefined,
+    decidedBy: decidedBy || undefined,
+    decidedAt,
+    deliveredAt: decidedAt,
+  }, `approval cleaned up id=${record.id} resolution=${resolution} by=${decidedBy || 'unknown'}`)
+}
+
+function matchPathParam(pathname, prefix, suffix = '') {
+  if (!pathname.startsWith(prefix)) return null
+  const rest = pathname.slice(prefix.length)
+  if (suffix) {
+    if (!rest.endsWith(suffix)) return null
+    const param = rest.slice(0, -suffix.length)
+    return param && !param.includes('/') ? decodeURIComponent(param) : null
+  }
+  return rest && !rest.includes('/') ? decodeURIComponent(rest) : null
 }
 
 function matchApprovalPath(pathname) {
-  const m = pathname.match(/^\/api\/approvals\/([^/]+)$/)
-  return m ? decodeURIComponent(m[1]) : null
+  return matchPathParam(pathname, '/api/approvals/')
 }
 function matchApprovalDecidePath(pathname) {
-  const m = pathname.match(/^\/api\/approvals\/([^/]+)\/decide$/)
-  return m ? decodeURIComponent(m[1]) : null
+  return matchPathParam(pathname, '/api/approvals/', '/decide')
 }
 
 async function bootstrap() {
@@ -586,13 +614,11 @@ async function bootstrap() {
 }
 
 function matchNotificationDetail(pathname) {
-  const m = pathname.match(/^\/api\/notifications\/([^/]+)$/)
-  return m ? decodeURIComponent(m[1]) : null
+  return matchPathParam(pathname, '/api/notifications/')
 }
 
 function matchNotificationReply(pathname) {
-  const m = pathname.match(/^\/api\/notifications\/([^/]+)\/reply$/)
-  return m ? decodeURIComponent(m[1]) : null
+  return matchPathParam(pathname, '/api/notifications/', '/reply')
 }
 
 const HOOK_POLL_TIMEOUT_MS = 600_000
@@ -876,17 +902,15 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 201, { ok: true, item: preItem, stored: false })
     }
 
-    const { item } = await addNotification(payload, 'moshi notification')
+    const result = await addNotification(payload, 'moshi notification')
+    const item = result.item
+    if (!result.duplicate) sseBroadcastNotificationAdded(item)
     return sendJson(res, 201, { ok: true, item })
   }
 
   if (method === 'POST' && pathname === '/api/client-events') {
-    const rawBody = await readRequestBody(req, { maxBytes: hubMaxBodyBytes })
-    const parsed = safeJsonParse(rawBody || '{}')
-    if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') {
-      return sendJson(res, 400, { ok: false, error: 'Invalid JSON body' })
-    }
-    const p = parsed.value
+    const p = await parseJsonBody(req, res)
+    if (!p) return
     const line = {
       id: randomUUID(),
       createdAt: new Date().toISOString(),
@@ -902,12 +926,8 @@ const server = createServer(async (req, res) => {
   // --- 位置情報 (Overland / 汎用 GPS ロガー対応) ---
 
   if (method === 'POST' && pathname === '/api/location') {
-    const rawBody = await readRequestBody(req, { maxBytes: hubMaxBodyBytes })
-    const parsed = safeJsonParse(rawBody || '{}')
-    if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') {
-      return sendJson(res, 400, { ok: false, error: 'Invalid JSON body' })
-    }
-    const p = parsed.value
+    const p = await parseJsonBody(req, res)
+    if (!p) return
     // Overland GeoJSON format: { locations: [{ geometry: { coordinates: [lng, lat] }, properties: { timestamp, ... } }] }
     const locations = Array.isArray(p.locations) ? p.locations : []
     if (locations.length > 0) {
@@ -947,12 +967,8 @@ const server = createServer(async (req, res) => {
   }
 
   if (method === 'POST' && pathname === '/api/stt/transcriptions') {
-    const rawBody = await readRequestBody(req, { maxBytes: hubMaxSttBodyBytes })
-    const parsed = safeJsonParse(rawBody || '{}')
-    if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') {
-      return sendJson(res, 400, { ok: false, error: 'Invalid JSON body' })
-    }
-    const p = parsed.value
+    const p = await parseJsonBody(req, res, hubMaxSttBodyBytes)
+    if (!p) return
     const audioBase64 = getString(p.audioBase64)
     if (!audioBase64) {
       return sendJson(res, 400, { ok: false, error: '`audioBase64` is required' })
@@ -976,14 +992,65 @@ const server = createServer(async (req, res) => {
     return sendJson(res, 200, result.payload)
   }
 
+  if (method === 'POST' && pathname === '/api/stt/realtime-token') {
+    if (!openaiApiKey) {
+      return sendJson(res, 400, { ok: false, error: 'OPENAI_API_KEY not configured' })
+    }
+    try {
+      const sessionRes = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          expires_after: { anchor: 'created_at', seconds: 600 },
+          session: {
+            type: 'transcription',
+            audio: {
+              input: {
+                transcription: {
+                  model: 'gpt-realtime-whisper',
+                  language: 'ja',
+                },
+              },
+            },
+          },
+        }),
+      })
+      if (!sessionRes.ok) {
+        const errText = await sessionRes.text().catch(() => '')
+        log(`OpenAI realtime client_secrets error: HTTP ${sessionRes.status} ${errText.slice(0, 300)}`)
+        return sendJson(res, 502, {
+          ok: false,
+          error: `OpenAI API error: HTTP ${sessionRes.status}`,
+        })
+      }
+      const sessionData = await sessionRes.json()
+      const token = sessionData?.value
+      const expiresAt = sessionData?.expires_at
+        ? new Date(sessionData.expires_at * 1000).toISOString()
+        : undefined
+      if (!token) {
+        log(`OpenAI realtime client_secrets: missing value in response: ${JSON.stringify(sessionData).slice(0, 200)}`)
+        return sendJson(res, 502, {
+          ok: false,
+          error: 'OpenAI API returned unexpected response (missing token)',
+        })
+      }
+      log('OpenAI realtime ephemeral token issued')
+      return sendJson(res, 200, { ok: true, token, expiresAt })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log(`OpenAI realtime session fetch error: ${msg}`)
+      return sendJson(res, 502, { ok: false, error: `OpenAI API request failed: ${msg}` })
+    }
+  }
+
   // Context status: StatusLine hook からコンテキストウィンドウ占有率を受信
   if (method === 'POST' && pathname === '/api/context-status') {
-    const rawBody = await readRequestBody(req, { maxBytes: hubMaxBodyBytes })
-    const parsed = safeJsonParse(rawBody || '{}')
-    if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') {
-      return sendJson(res, 400, { ok: false, error: 'Invalid JSON body' })
-    }
-    const p = parsed.value
+    const p = await parseJsonBody(req, res)
+    if (!p) return
     const sessionId = getString(p.sessionId, 'default')
     contextStatusBySession.set(sessionId, {
       sessionId,
@@ -997,6 +1064,27 @@ const server = createServer(async (req, res) => {
 
   if (method === 'GET' && pathname === '/api/context-status') {
     return sendJson(res, 200, { ok: true, sessions: [...contextStatusBySession.values()] })
+  }
+
+  if (method === 'GET' && pathname === '/api/events') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    })
+    res.write('retry: 5000\n\n')
+    sseClients.add(res)
+    log(`SSE client connected (total=${sseClients.size})`)
+    const heartbeat = setInterval(() => {
+      try { res.write(': ping\n\n') } catch { /* cleanup below */ }
+    }, 15000)
+    req.on('close', () => {
+      clearInterval(heartbeat)
+      sseClients.delete(res)
+      log(`SSE client disconnected (total=${sseClients.size})`)
+    })
+    return
   }
 
   if (method === 'GET' && pathname === '/api/notifications') {
@@ -1019,22 +1107,19 @@ const server = createServer(async (req, res) => {
     if (id) {
       const item = notificationsById.get(id)
       if (!item) return sendJson(res, 404, { ok: false, error: 'Notification not found' })
-      const rawBody = await readRequestBody(req, { maxBytes: hubMaxBodyBytes })
-      const parsed = safeJsonParse(rawBody || '{}')
-      if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') {
-        return sendJson(res, 400, { ok: false, error: 'Invalid JSON body' })
-      }
-      const replyTextRaw = getString(parsed.value.replyText)
-      const action = getString(parsed.value.action)
-      const comment = getString(parsed.value.comment)
-      const source = getString(parsed.value.source)
+      const p = await parseJsonBody(req, res)
+      if (!p) return
+      const replyTextRaw = getString(p.replyText)
+      const action = getString(p.action)
+      const comment = getString(p.comment)
+      const source = getString(p.source)
 
       // answerData バリデーション: plain object, キー/値とも string, 上限付き
       let answerData = undefined
-      if (parsed.value.answerData && typeof parsed.value.answerData === 'object' && !Array.isArray(parsed.value.answerData)) {
-        const entries = Object.entries(parsed.value.answerData)
+      if (p.answerData && typeof p.answerData === 'object' && !Array.isArray(p.answerData)) {
+        const entries = Object.entries(p.answerData)
         if (entries.length <= 10 && entries.every(([k, v]) => typeof k === 'string' && typeof v === 'string' && k.length <= 2000 && v.length <= 2000)) {
-          answerData = parsed.value.answerData
+          answerData = p.answerData
         }
       }
 
@@ -1215,25 +1300,13 @@ const server = createServer(async (req, res) => {
         record.result = 'relayed'
       }
 
-      const fwd = await forwardReplyIfConfigured({
+      const replyPayload = {
         reply: record,
-        notification: {
-          id: item.id,
-          title: item.title,
-          summary: item.summary,
-          metadata: item.metadata,
-        },
-      })
+        notification: { id: item.id, title: item.title, summary: item.summary, metadata: item.metadata },
+      }
+      const fwd = await forwardReplyIfConfigured(replyPayload)
       const relay = shouldRelay
-        ? await relayReplyIfConfigured({
-            reply: record,
-            notification: {
-              id: item.id,
-              title: item.title,
-              summary: item.summary,
-              metadata: item.metadata,
-            },
-          })
+        ? await relayReplyIfConfigured(replyPayload)
         : { status: 'stubbed' }
       const statuses = [fwd.status, relay.status]
       if (statuses.includes('failed')) record.status = 'failed'
@@ -1243,6 +1316,7 @@ const server = createServer(async (req, res) => {
       if (errors.length > 0) record.error = [record.error, ...errors].filter(Boolean).join(' | ')
       replies.push(record)
       await appendJsonl(repliesFile, record)
+      sseBroadcast('notification-updated', notificationToListItem(item))
 
       log(
         `reply accepted id=${record.id} notificationId=${record.notificationId} status=${record.status}${record.action ? ` action=${record.action}` : ''}${record.error ? ` error=${record.error}` : ''}`,
@@ -1252,12 +1326,8 @@ const server = createServer(async (req, res) => {
   }
 
   if (method === 'POST' && pathname === '/api/approvals') {
-    const rawBody = await readRequestBody(req, { maxBytes: hubMaxBodyBytes })
-    const parsed = safeJsonParse(rawBody || '{}')
-    if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') {
-      return sendJson(res, 400, { ok: false, error: 'Invalid JSON body' })
-    }
-    const p = parsed.value
+    const p = await parseJsonBody(req, res)
+    if (!p) return
     const toolName = getString(p.toolName)
     if (!toolName) {
       return sendJson(res, 400, { ok: false, error: '`toolName` is required' })
@@ -1300,17 +1370,14 @@ const server = createServer(async (req, res) => {
       if (record.status !== 'pending') {
         return sendJson(res, 409, { ok: false, error: 'Approval already decided', approval: record })
       }
-      const rawBody = await readRequestBody(req, { maxBytes: hubMaxBodyBytes })
-      const parsed = safeJsonParse(rawBody || '{}')
-      if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') {
-        return sendJson(res, 400, { ok: false, error: 'Invalid JSON body' })
-      }
-      const decision = getString(parsed.value.decision)
+      const p = await parseJsonBody(req, res)
+      if (!p) return
+      const decision = getString(p.decision)
       if (decision !== 'approve' && decision !== 'deny') {
         return sendJson(res, 400, { ok: false, error: '`decision` must be "approve" or "deny"' })
       }
-      const comment = getString(parsed.value.comment)
-      const source = getString(parsed.value.source)
+      const comment = getString(p.comment)
+      const source = getString(p.source)
       const updated = resolveApproval(approvalId, decision, comment, source)
       return sendJson(res, 200, { ok: true, approval: updated })
     }
@@ -1361,6 +1428,7 @@ const server = createServer(async (req, res) => {
         'GET  /api/health',
         'POST /api/hooks/permission-request  (HTTP hook for Claude Code)',
         'POST /api/notify/moshi',
+        'GET  /api/events                 (SSE stream)',
         'GET  /api/notifications?limit=20',
         'GET  /api/notifications/:id',
         'POST /api/notifications/:id/reply',
@@ -1369,6 +1437,8 @@ const server = createServer(async (req, res) => {
         'GET  /api/approvals              (list pending approvals)',
         'GET  /api/approvals/:id          (poll approval status)',
         'POST /api/approvals/:id/decide   (submit decision)',
+        '',
+        'POST /api/stt/realtime-token     (OpenAI Realtime ephemeral token)',
         '',
         'GET  /ui                         (approval dashboard)',
         'POST /api/client-events          (frontend event log intake)',

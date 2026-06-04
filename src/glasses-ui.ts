@@ -40,7 +40,7 @@ export type AskQuestionData = {
 
 /** G2ディスプレイ上の通知UIの状態 */
 export type NotificationUIState = {
-  screen: 'idle' | 'list' | 'detail' | 'detail-actions' | 'ask-question' | 'ask-question-detail' | 'reply-recording' | 'reply-confirm' | 'reply-sending'
+  screen: 'idle' | 'list' | 'detail' | 'detail-actions' | 'ask-question' | 'ask-question-detail' | 'reply-recording' | 'reply-confirm' | 'reply-confirm-actions' | 'reply-sending'
   items: NotificationItem[]
   selectedIndex: number
   /** detail画面のページ送り用（fullTextを複数ページに分割） */
@@ -240,10 +240,72 @@ function formatCurrentDateTime(now = new Date()): string {
   return `${now.getMonth() + 1}/${now.getDate()} ${weekdays[now.getDay()]} ${formatCurrentTime(now)}`
 }
 
+type LayoutName = 'base' | 'text' | 'idle-launcher' | 'approval' | 'notif-list' | 'notif-detail' | 'notif-actions' | 'ask-question' | 'reply-recording' | 'reply-confirm-actions' | 'reply-result'
+
+type HeaderListPageOptions = {
+  headerContainerName: string
+  headerYPosition: number
+  headerHeight: number
+  headerContent: string
+  listContainerName: string
+  listYPosition: number
+  listHeight: number
+  listItems: string[]
+  targetLayout: string | undefined
+  layoutSet: LayoutName
+}
+
+type HeaderBodyPageOptions = {
+  headerContainerName: string
+  headerContent: string
+  bodyContainerName: string
+  bodyContent: string
+  targetLayout: string
+  layoutSet: LayoutName
+}
+
+/** ghostListContainer: 実機で text+list -> text+text の切替が不安定なため保持するダミー */
+function createGhostListContainer(): ListContainerProperty {
+  return new ListContainerProperty({
+    xPosition: 8,
+    yPosition: 250,
+    width: 560,
+    height: 18,
+    containerID: 3,
+    containerName: 'notif-list',
+    itemContainer: new ListItemContainerProperty({
+      itemCount: 1,
+      itemWidth: 0,
+      isItemSelectBorderEn: 0,
+      itemName: [' '],
+    }),
+    isEventCapture: 0,
+  })
+}
+
+/** textContainerUpgrade の boilerplate ラッパー（contentOffset は常に 0） */
+async function upgradeText(
+  conn: BridgeConnection,
+  containerID: number,
+  containerName: string,
+  text: string,
+): Promise<boolean> {
+  const result = await conn.bridge!.textContainerUpgrade(
+    new TextContainerUpgrade({
+      containerID,
+      containerName,
+      contentOffset: 0,
+      contentLength: text.length,
+      content: text,
+    }),
+  )
+  return !!result
+}
+
 export function createGlassesUI() {
   // The host treats startup-page creation as one-time init; later UI changes should use rebuild.
   const startupRenderedBridges = new WeakSet<object>()
-  const layoutByBridge = new WeakMap<object, 'base' | 'text' | 'idle-launcher' | 'approval' | 'notif-list' | 'notif-detail' | 'notif-actions' | 'ask-question' | 'reply-recording' | 'reply-confirm' | 'reply-result'>()
+  const layoutByBridge = new WeakMap<object, LayoutName>()
   const bridgeKeyOf = (conn: BridgeConnection) => conn.bridge as unknown as object
 
   // 描画ロック: SDK呼び出しの同時実行を防ぐ（実機で衝突するとG2が固まる）
@@ -343,6 +405,74 @@ export function createGlassesUI() {
     }
   }
 
+  /** header TextContainer + list ListContainer の共通描画パターン */
+  async function renderHeaderListPage(conn: BridgeConnection, opts: HeaderListPageOptions): Promise<void> {
+    const headerContainer = new TextContainerProperty({
+      xPosition: 8,
+      yPosition: opts.headerYPosition,
+      width: 560,
+      height: opts.headerHeight,
+      containerID: 1,
+      containerName: opts.headerContainerName,
+      content: opts.headerContent,
+      isEventCapture: 0,
+    })
+
+    const listContainer = new ListContainerProperty({
+      xPosition: 8,
+      yPosition: opts.listYPosition,
+      width: 560,
+      height: opts.listHeight,
+      containerID: 2,
+      containerName: opts.listContainerName,
+      itemContainer: new ListItemContainerProperty({
+        itemCount: opts.listItems.length,
+        itemWidth: 0,
+        isItemSelectBorderEn: 1,
+        itemName: opts.listItems,
+      }),
+      isEventCapture: 1,
+    })
+
+    await renderStartupPage(conn, {
+      texts: [headerContainer],
+      lists: [listContainer],
+      targetLayout: opts.targetLayout,
+    })
+    layoutByBridge.set(bridgeKeyOf(conn), opts.layoutSet)
+  }
+
+  /** header TextContainer + body TextContainer の共通描画パターン */
+  async function renderHeaderBodyPage(conn: BridgeConnection, opts: HeaderBodyPageOptions): Promise<void> {
+    const headerContainer = new TextContainerProperty({
+      xPosition: 8,
+      yPosition: 4,
+      width: 560,
+      height: 28,
+      containerID: 1,
+      containerName: opts.headerContainerName,
+      content: opts.headerContent,
+      isEventCapture: 0,
+    })
+
+    const bodyContainer = new TextContainerProperty({
+      xPosition: 8,
+      yPosition: 36,
+      width: 560,
+      height: 240,
+      containerID: 2,
+      containerName: opts.bodyContainerName,
+      content: opts.bodyContent,
+      isEventCapture: 1,
+    })
+
+    await renderStartupPage(conn, {
+      texts: [headerContainer, bodyContainer],
+      targetLayout: opts.targetLayout,
+    })
+    layoutByBridge.set(bridgeKeyOf(conn), opts.layoutSet)
+  }
+
   return {
     /** 描画中かどうか（ポーリング等で衝突を避けるために使用） */
     isRendering(): boolean {
@@ -381,17 +511,8 @@ export function createGlassesUI() {
 
       const bridgeKey = bridgeKeyOf(conn)
       const currentLayout = layoutByBridge.get(bridgeKey)
-      if (startupRenderedBridges.has(bridgeKey) && (currentLayout === 'text' || currentLayout === 'base')) {
-        const upgraded = await conn.bridge.textContainerUpgrade(
-          new TextContainerUpgrade({
-            containerID: 1,
-            containerName: currentLayout === 'base' ? 'boot-text' : 'main-text',
-            contentOffset: 0,
-            contentLength: text.length,
-            content: text,
-          }),
-        )
-        if (upgraded) {
+      if (startupRenderedBridges.has(bridgeKey) && currentLayout === 'text') {
+        if (await upgradeText(conn, 1, 'main-text', text)) {
           layoutByBridge.set(bridgeKey, 'text')
           log(`G2にテキスト表示完了: "${text}"`)
           return
@@ -403,7 +524,7 @@ export function createGlassesUI() {
         xPosition: 8,
         yPosition: 10,
         width: 560,
-        height: 120,
+        height: 260,
         containerID: 1,
         containerName: 'main-text',
         content: text,
@@ -531,24 +652,8 @@ export function createGlassesUI() {
       // 既に notif-detail レイアウトなら textContainerUpgrade でテキストだけ更新
       const bridgeKey = bridgeKeyOf(conn)
       if (startupRenderedBridges.has(bridgeKey) && layoutByBridge.get(bridgeKey) === 'notif-detail') {
-        const h = await conn.bridge.textContainerUpgrade(
-          new TextContainerUpgrade({
-            containerID: 1,
-            containerName: 'notif-dtl-hdr',
-            contentOffset: 0,
-            contentLength: headerText.length,
-            content: headerText,
-          }),
-        )
-        const b = await conn.bridge.textContainerUpgrade(
-          new TextContainerUpgrade({
-            containerID: 2,
-            containerName: 'notif-body',
-            contentOffset: 0,
-            contentLength: bodyText.length,
-            content: bodyText,
-          }),
-        )
+        const h = await upgradeText(conn, 1, 'notif-dtl-hdr', headerText)
+        const b = await upgradeText(conn, 2, 'notif-body', bodyText)
         if (h && b) {
           log(`G2に通知詳細表示: "${detail.title}" chunk=${pageIndex + 1}/${pages.length} (${bodyText.length}chars, firmware scroll)`)
           return
@@ -581,29 +686,21 @@ export function createGlassesUI() {
       })
 
       // 実機で text+list -> text+text の切替が不安定なため、通知系画面は常に list コンテナも保持する
-      const ghostListContainer = new ListContainerProperty({
-        xPosition: 8,
-        yPosition: 250,
-        width: 560,
-        height: 18,
-        containerID: 3,
-        containerName: 'notif-list',
-        itemContainer: new ListItemContainerProperty({
-          itemCount: 1,
-          itemWidth: 0,
-          isItemSelectBorderEn: 0,
-          itemName: [' '],
-        }),
-        isEventCapture: 0,
-      })
-
       await renderStartupPage(conn, {
         texts: [headerContainer, bodyContainer],
-        lists: [ghostListContainer],
+        lists: [createGhostListContainer()],
         targetLayout: 'notif-detail',
       })
       layoutByBridge.set(bridgeKeyOf(conn), 'notif-detail')
       log(`G2に通知詳細表示: "${detail.title}" chunk=${pageIndex + 1}/${pages.length} (${bodyText.length}chars, firmware scroll)`)
+    },
+
+    /** 詳細画面のヘッダーに新着バッジを付与する（rebuild 不要） */
+    async updateDetailHeaderBadge(conn: BridgeConnection, badgeText: string): Promise<boolean> {
+      if (!conn.bridge) return false
+      const bridgeKey = bridgeKeyOf(conn)
+      if (layoutByBridge.get(bridgeKey) !== 'notif-detail') return false
+      return upgradeText(conn, 1, 'notif-dtl-hdr', badgeText)
     },
 
     /** fullTextのチャンク数を返す（各チャンクUTF-8で最大999bytes、ファームウェアスクロール） */
@@ -648,41 +745,18 @@ export function createGlassesUI() {
         return
       }
 
-      const actionItems = ['コメント', 'Approve', 'Deny', '◀ 戻る']
-
-      const headerContainer = new TextContainerProperty({
-        xPosition: 8,
-        yPosition: 4,
-        width: 560,
-        height: 52,
-        containerID: 1,
-        containerName: 'notif-act-hdr',
-        content: `操作を選択\n${detail.title.length > 20 ? `${detail.title.slice(0, 19)}…` : detail.title}`,
-        isEventCapture: 0,
-      })
-
-      const listContainer = new ListContainerProperty({
-        xPosition: 8,
-        yPosition: 58,
-        width: 560,
-        height: 210,
-        containerID: 2,
-        containerName: 'notif-act-lst',
-        itemContainer: new ListItemContainerProperty({
-          itemCount: actionItems.length,
-          itemWidth: 0,
-          isItemSelectBorderEn: 1,
-          itemName: actionItems,
-        }),
-        isEventCapture: 1,
-      })
-
-      await renderStartupPage(conn, {
-        texts: [headerContainer],
-        lists: [listContainer],
+      await renderHeaderListPage(conn, {
+        headerContainerName: 'notif-act-hdr',
+        headerYPosition: 4,
+        headerHeight: 52,
+        headerContent: `操作を選択\n${detail.title.length > 20 ? `${detail.title.slice(0, 19)}…` : detail.title}`,
+        listContainerName: 'notif-act-lst',
+        listYPosition: 58,
+        listHeight: 210,
+        listItems: ['コメント', 'Approve', 'Deny', '◀ 戻る'],
         targetLayout: 'notif-actions',
+        layoutSet: 'notif-actions',
       })
-      layoutByBridge.set(bridgeKeyOf(conn), 'notif-actions')
       log(`G2に通知アクション表示: "${detail.title}"`)
     },
 
@@ -711,39 +785,18 @@ export function createGlassesUI() {
       const headerBudget = 999 - byteLen(qNum)
       const headerText = `${qNum}${truncateByBytes(questionData.question, headerBudget)}`
 
-      const headerContainer = new TextContainerProperty({
-        xPosition: 8,
-        yPosition: 4,
-        width: 560,
-        height: 52,
-        containerID: 1,
-        containerName: 'ask-q-hdr',
-        content: headerText,
-        isEventCapture: 0,
-      })
-
-      const listContainer = new ListContainerProperty({
-        xPosition: 8,
-        yPosition: 58,
-        width: 560,
-        height: 210,
-        containerID: 2,
-        containerName: 'ask-q-lst',
-        itemContainer: new ListItemContainerProperty({
-          itemCount: optionLabels.length,
-          itemWidth: 0,
-          isItemSelectBorderEn: 1,
-          itemName: optionLabels,
-        }),
-        isEventCapture: 1,
-      })
-
-      await renderStartupPage(conn, {
-        texts: [headerContainer],
-        lists: [listContainer],
+      await renderHeaderListPage(conn, {
+        headerContainerName: 'ask-q-hdr',
+        headerYPosition: 4,
+        headerHeight: 52,
+        headerContent: headerText,
+        listContainerName: 'ask-q-lst',
+        listYPosition: 58,
+        listHeight: 210,
+        listItems: optionLabels,
         targetLayout: 'ask-question',
+        layoutSet: 'ask-question',
       })
-      layoutByBridge.set(bridgeKeyOf(conn), 'ask-question')
       log(`G2に AskUserQuestion 表示: "${questionData.question}" options=${optionLabels.length}`)
     },
 
@@ -757,34 +810,25 @@ export function createGlassesUI() {
         return
       }
 
-      const headerContainer = new TextContainerProperty({
-        xPosition: 8,
-        yPosition: 4,
-        width: 560,
-        height: 28,
-        containerID: 1,
-        containerName: 'reply-header',
-        content: '音声返信',
-        isEventCapture: 0,
-      })
-
-      const bodyContainer = new TextContainerProperty({
-        xPosition: 8,
-        yPosition: 36,
-        width: 560,
-        height: 240,
-        containerID: 2,
-        containerName: 'reply-body',
-        content: '録音中...\n\nDblClick = 停止\nSwipe = キャンセル',
-        isEventCapture: 1,
-      })
-
-      await renderStartupPage(conn, {
-        texts: [headerContainer, bodyContainer],
+      await renderHeaderBodyPage(conn, {
+        headerContainerName: 'reply-header',
+        headerContent: '音声返信',
+        bodyContainerName: 'reply-body',
+        bodyContent: '録音中...\n\nDblClick = 停止\nSwipe = キャンセル',
         targetLayout: 'reply-recording',
+        layoutSet: 'reply-recording',
       })
-      layoutByBridge.set(bridgeKeyOf(conn), 'reply-recording')
       log('G2に録音中画面表示')
+    },
+
+    /**
+     * 録音中画面のbodyテキストをリアルタイム更新する（ストリーミングSTT表示用）
+     */
+    async updateReplyRecordingBody(conn: BridgeConnection, text: string): Promise<void> {
+      if (!conn.bridge) return
+      const bridgeKey = bridgeKeyOf(conn)
+      if (layoutByBridge.get(bridgeKey) !== 'reply-recording') return
+      await upgradeText(conn, 2, 'reply-body', text)
     },
 
     /**
@@ -796,100 +840,48 @@ export function createGlassesUI() {
         return
       }
 
+      // reply-recording レイアウト時は textContainerUpgrade で body だけ差し替え（特殊最適化パス）
       const bridgeKey = bridgeKeyOf(conn)
       if (startupRenderedBridges.has(bridgeKey) && layoutByBridge.get(bridgeKey) === 'reply-recording') {
-        const ok = await conn.bridge.textContainerUpgrade(
-          new TextContainerUpgrade({
-            containerID: 2,
-            containerName: 'reply-body',
-            contentOffset: 0,
-            contentLength: 'STT処理中...'.length,
-            content: 'STT処理中...',
-          }),
-        )
-        if (ok) {
+        if (await upgradeText(conn, 2, 'reply-body', 'STT処理中...')) {
           log('G2にSTT処理中表示')
           return
         }
       }
 
-      const headerContainer = new TextContainerProperty({
-        xPosition: 8,
-        yPosition: 4,
-        width: 560,
-        height: 28,
-        containerID: 1,
-        containerName: 'reply-header',
-        content: '音声返信',
-        isEventCapture: 0,
-      })
-
-      const bodyContainer = new TextContainerProperty({
-        xPosition: 8,
-        yPosition: 36,
-        width: 560,
-        height: 240,
-        containerID: 2,
-        containerName: 'reply-body',
-        content: 'STT処理中...',
-        isEventCapture: 1,
-      })
-
-      await renderStartupPage(conn, {
-        texts: [headerContainer, bodyContainer],
+      await renderHeaderBodyPage(conn, {
+        headerContainerName: 'reply-header',
+        headerContent: '音声返信',
+        bodyContainerName: 'reply-body',
+        bodyContent: 'STT処理中...',
         targetLayout: 'reply-recording',
+        layoutSet: 'reply-recording',
       })
-      layoutByBridge.set(bridgeKeyOf(conn), 'reply-recording')
       log('G2にSTT処理中表示')
     },
 
     /**
-     * G2にSTT結果確認画面を表示する（SDK標準ListContainer）
-     * ※実機ではスクロール方向が物理操作と逆になる
+     * G2に返信確認後の操作メニューを表示する（SDK標準ListContainer）
      */
-    async showReplyConfirm(conn: BridgeConnection, sttText: string): Promise<void> {
+    async showReplyConfirmActions(conn: BridgeConnection): Promise<void> {
       if (!conn.bridge) {
-        log(`[Mock] G2返信確認: "${sttText}"`)
+        log('[Mock] G2返信確認アクション')
         return
       }
 
-      const preview = sttText.length > 80 ? sttText.slice(0, 79) + '…' : sttText
-      const confirmItems = ['送信', '再録', 'キャンセル', '◀ 戻る']
-
-      const headerContainer = new TextContainerProperty({
-        xPosition: 8,
-        yPosition: 4,
-        width: 560,
-        height: 80,
-        containerID: 1,
-        containerName: 'rply-cfm-hdr',
-        content: `返信内容:\n${preview}`,
-        isEventCapture: 0,
+      await renderHeaderListPage(conn, {
+        headerContainerName: 'rply-act-hdr',
+        headerYPosition: 4,
+        headerHeight: 52,
+        headerContent: '返信内容 OK?',
+        listContainerName: 'rply-act-lst',
+        listYPosition: 58,
+        listHeight: 210,
+        listItems: ['送信', '再録', 'キャンセル', '◀ 本文'],
+        targetLayout: 'reply-confirm-actions',
+        layoutSet: 'reply-confirm-actions',
       })
-
-      const listContainer = new ListContainerProperty({
-        xPosition: 8,
-        yPosition: 88,
-        width: 560,
-        height: 180,
-        containerID: 2,
-        containerName: 'rply-cfm-lst',
-        itemContainer: new ListItemContainerProperty({
-          itemCount: confirmItems.length,
-          itemWidth: 0,
-          isItemSelectBorderEn: 1,
-          itemName: confirmItems,
-        }),
-        isEventCapture: 1,
-      })
-
-      await renderStartupPage(conn, {
-        texts: [headerContainer],
-        lists: [listContainer],
-        targetLayout: 'reply-confirm',
-      })
-      layoutByBridge.set(bridgeKeyOf(conn), 'reply-confirm')
-      log(`G2に返信確認画面表示: "${preview}"`)
+      log('G2に返信確認アクション表示')
     },
 
     /**
@@ -901,38 +893,18 @@ export function createGlassesUI() {
         return
       }
 
-      const text = success
-        ? `送信完了\n${message || ''}`
-        : `送信失敗\n${message || ''}`
+      const statusLabel = success ? '返信完了' : '返信失敗'
+      const statusPrefix = success ? '送信完了' : '送信失敗'
 
-      const headerContainer = new TextContainerProperty({
-        xPosition: 8,
-        yPosition: 4,
-        width: 560,
-        height: 28,
-        containerID: 1,
-        containerName: 'rply-rst-hdr',
-        content: success ? '返信完了' : '返信失敗',
-        isEventCapture: 0,
-      })
-
-      const bodyContainer = new TextContainerProperty({
-        xPosition: 8,
-        yPosition: 36,
-        width: 560,
-        height: 240,
-        containerID: 2,
-        containerName: 'rply-rst-body',
-        content: text,
-        isEventCapture: 1,
-      })
-
-      await renderStartupPage(conn, {
-        texts: [headerContainer, bodyContainer],
+      await renderHeaderBodyPage(conn, {
+        headerContainerName: 'rply-rst-hdr',
+        headerContent: statusLabel,
+        bodyContainerName: 'rply-rst-body',
+        bodyContent: `${statusPrefix}\n${message || ''}`,
         targetLayout: 'reply-result',
+        layoutSet: 'reply-result',
       })
-      layoutByBridge.set(bridgeKeyOf(conn), 'reply-result')
-      log(`G2に返信結果表示: ${success ? '成功' : '失敗'}`)
+      log(`G2に返信結果表示: ${statusLabel}`)
     },
 
     /**
@@ -953,41 +925,19 @@ export function createGlassesUI() {
         })
       }
 
-      // タイトル表示
       // Use a compact layout that fits both 576x288 and 640x200 displays/simulators.
-      const titleContainer = new TextContainerProperty({
-        xPosition: 8,
-        yPosition: 10,
-        width: 560,
-        height: 48,
-        containerID: 1,
-        containerName: 'approval-title',
-        content: `${request.title}\n${request.detail}`,
-        isEventCapture: 0,
+      await renderHeaderListPage(conn, {
+        headerContainerName: 'approval-title',
+        headerYPosition: 10,
+        headerHeight: 48,
+        headerContent: `${request.title}\n${request.detail}`,
+        listContainerName: 'approval-list',
+        listYPosition: 64,
+        listHeight: 120,
+        listItems: request.options,
+        targetLayout: undefined,
+        layoutSet: 'approval',
       })
-
-      // 選択リスト
-      const listContainer = new ListContainerProperty({
-        xPosition: 8,
-        yPosition: 64,
-        width: 560,
-        height: 120,
-        containerID: 2,
-        containerName: 'approval-list',
-        itemContainer: new ListItemContainerProperty({
-          itemCount: request.options.length,
-          itemWidth: 0,
-          isItemSelectBorderEn: 1,
-          itemName: request.options,
-        }),
-        isEventCapture: 1,
-      })
-
-      await renderStartupPage(conn, {
-        texts: [titleContainer],
-        lists: [listContainer],
-      })
-      layoutByBridge.set(bridgeKeyOf(conn), 'approval')
       log('G2に承認UIを表示')
 
       // イベント待ち

@@ -3,7 +3,7 @@ import { concatChunks, encodePcm16kMonoS16leToWav } from '../audio/wav'
 
 export type SttResult = {
   text: string
-  provider: 'groq' | 'mock'
+  provider: 'groq' | 'openai-realtime' | 'mock'
   model?: string
 }
 

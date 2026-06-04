@@ -16,26 +16,11 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEBUG_DIR="${PROJECT_DIR}/tmp/notification-hub"
 mkdir -p "$DEBUG_DIR"
 
+# shellcheck source=lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
+
 CURRENT_STEP="init"
-dump_debug_on_error() {
-  local rc="$?"
-  local ts
-  ts="$(date -u +%Y%m%dT%H%M%SZ)"
-  local prefix="${DEBUG_DIR}/codex-stop-hook-fail-${ts}-$$"
-  {
-    echo "timestamp=${ts}"
-    echo "step=${CURRENT_STEP}"
-    echo "exit_code=${rc}"
-    echo "hook_input_bytes=${#HOOK_INPUT}"
-    echo "cwd=${CWD:-}"
-    echo "session_id=${SESSION_ID:-}"
-    echo "tmux_target=${TMUX_TARGET:-}"
-    echo "transcript_path=${TRANSCRIPT_PATH:-}"
-    echo "last_message_bytes=${#LAST_MESSAGE_CLEAN:-0}"
-  } > "${prefix}.txt" 2>/dev/null || true
-  printf '%s' "$HOOK_INPUT" > "${prefix}.hook-input.json" 2>/dev/null || true
-}
-trap 'dump_debug_on_error' ERR
+trap 'dump_debug_on_error "codex-stop-hook-fail"' ERR
 
 if [ -z "$HOOK_INPUT" ]; then
   exit 0
@@ -69,84 +54,6 @@ LAST_MESSAGE_FULL="$(
     .last_assistant_message // .last_message // .assistant_message // .message // .output_text // empty
   ' 2>/dev/null || true
 )"
-
-resolve_tmux_target() {
-  if [ -n "${CC_G2_TMUX_TARGET:-}" ]; then
-    printf '%s' "$CC_G2_TMUX_TARGET"
-    return 0
-  fi
-  if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then
-    tmux display-message -p '#S:#I.#P' 2>/dev/null || true
-  fi
-}
-
-derive_session_label() {
-  local target="$1"
-  local session="${target%%:*}"
-  if [ -z "$session" ]; then
-    return 0
-  fi
-  if [[ "$session" =~ -([0-9]+)$ ]]; then
-    local suffix="${BASH_REMATCH[1]}"
-    local prefix="${session%-${suffix}}"
-    if [[ "$prefix" =~ -[0-9a-f]{4}$ ]]; then
-      printf '#%s' "$suffix"
-      return 0
-    fi
-  fi
-  if [[ "$session" =~ -[0-9a-f]{4}$ ]]; then
-    printf '#1'
-  fi
-}
-
-extract_last_assistant_text() {
-  local path="$1"
-  [ -f "$path" ] || return 0
-
-  local msg
-  msg=$(tail -n 4000 "$path" | jq -Rsr '
-    def extract_text:
-      if (.message?.content? | type) == "array" then
-        (.message.content
-          | map(
-              if type == "string" then .
-              elif .type? == "text" then (.text // "")
-              elif .text? then .text
-              else ""
-              end
-            )
-          | join("\n"))
-      elif (.message?.content? | type) == "string" then
-        .message.content
-      elif (.content? | type) == "string" then
-        .content
-      elif (.text? | type) == "string" then
-        .text
-      else
-        ""
-      end;
-
-    split("\n")
-    | map(fromjson? | select(type=="object"))
-    | map(
-        select(
-          (.type? == "assistant")
-          or (.role? == "assistant")
-          or (.message?.role? == "assistant")
-          or (.message?.type? == "assistant")
-        )
-        | extract_text
-      )
-    | map(select(length > 0))
-    | if length == 0 then "" else last end
-  ' 2>/dev/null)
-
-  if [ -z "$msg" ] || [ "$msg" = "null" ]; then
-    msg=""
-  fi
-
-  printf '%s' "$msg"
-}
 
 if [ -z "$LAST_MESSAGE_FULL" ] && [ -n "$TRANSCRIPT_PATH" ]; then
   CURRENT_STEP="extract_transcript"
@@ -224,25 +131,9 @@ PAYLOAD="$(jq -n \
     }
   }')"
 
-CURRENT_STEP="post_notify"
-HTTP_CODE="$(
-  curl -s -o /dev/null -w '%{http_code}' -X POST "${HUB_URL}/api/notify/moshi" \
-    -H "Content-Type: application/json" \
-    ${HUB_AUTH_TOKEN:+-H "X-CC-G2-Token: ${HUB_AUTH_TOKEN}"} \
-    -d "$PAYLOAD" \
-    --connect-timeout 3 \
-    --max-time 5 || true
-)"
-
-if [ "${HTTP_CODE:-000}" -lt 200 ] || [ "${HTTP_CODE:-000}" -ge 300 ]; then
-  CURRENT_STEP="post_notify_http_${HTTP_CODE:-000}"
-  {
-    echo "timestamp=$(date -u +%Y%m%dT%H%M%SZ)"
-    echo "step=${CURRENT_STEP}"
-    echo "notify_http_code=${HTTP_CODE:-000}"
-    echo "project=${PROJECT:-}"
-    echo "session_id=${SESSION_ID:-}"
-  } >> "${DEBUG_DIR}/codex-stop-hook-last-error.log" 2>/dev/null || true
-fi
+post_notification_payload "$PAYLOAD" \
+  "${DEBUG_DIR}/codex-stop-hook-last-error.log" \
+  "project=${PROJECT:-}" \
+  "session_id=${SESSION_ID:-}"
 
 exit 0

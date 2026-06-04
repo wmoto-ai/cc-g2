@@ -158,6 +158,24 @@ describe('createGlassesUI startup result handling', () => {
     expect(conn.bridge.createStartUpPageContainer).toHaveBeenCalledTimes(1)
     expect(ui.hasRenderedPage(conn as never)).toBe(true)
   })
+
+  it('renders reply confirmation actions as the only selectable list', async () => {
+    const ui = createGlassesUI()
+    const conn = {
+      bridge: {
+        createStartUpPageContainer: vi.fn().mockResolvedValue(0),
+      },
+    }
+
+    await ui.showReplyConfirmActions(conn as never)
+
+    const payload = conn.bridge.createStartUpPageContainer.mock.calls[0][0]
+    expect(payload.textObject).toHaveLength(1)
+    expect(payload.listObject).toHaveLength(1)
+    expect(payload.textObject[0].containerName).toBe('rply-act-hdr')
+    expect(payload.listObject[0].containerName).toBe('rply-act-lst')
+    expect(payload.listObject[0].itemContainer.itemName).toEqual(['送信', '再録', 'キャンセル', '◀ 本文'])
+  })
 })
 
 describe('isAskQuestionShort / buildAskQuestionFullText', () => {

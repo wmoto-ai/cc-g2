@@ -4,8 +4,9 @@ import { initBridge, type BridgeConnection } from './bridge'
 import { createGlassesUI, type NotificationUIState, type AskQuestionData } from './glasses-ui'
 import { log } from './log'
 import { transcribePcmChunks } from './stt/groq'
-import { formatForG2Display } from './g2-format'
-import { appConfig, canUseGroqStt, createHubHeaders } from './config'
+import { formatForG2ScrollableText } from './g2-format'
+import { appConfig, canUseGroqStt, canUseOpenaiRealtimeStt, createHubHeaders } from './config'
+import { OpenAIRealtimeSTT } from './stt/openai-realtime'
 import { getWebSpeechSupport, startWebSpeechCapture, type WebSpeechSession } from './stt/webspeech'
 import { createNotificationClient, type NotificationDetail, type NotificationItem } from './notifications'
 import { G2_EVENT, getNormalizedEventType, isDoubleTapEventType, isTapEventType, normalizeHubEvent } from './even-events'
@@ -111,10 +112,13 @@ let webSpeechFinalText = ''
 let webSpeechInterimText = ''
 let webSpeechError = ''
 let deviceStatusListenerAttached = false
+// G2 の装着状態。
+let deviceWearing = true
 let replyAudioChunks: Uint8Array[] = []
 let replyAudioTotalBytes = 0
 let replyIsRecording = false
 let replyStopInFlight = false
+let realtimeSTT: OpenAIRealtimeSTT | null = null
 let lastIdleEventAt = 0
 let idleTapDuringRender = false
 let idleOpenBlockedUntil = 0
@@ -137,6 +141,12 @@ const IDLE_REOPEN_COOLDOWN_MS = 4000
 // idle→一覧を開いた直後は、同じダブルタップ動作の「2発目」が一覧の
 // クローズ（待機復帰）として誤発火しやすい。この窓の間はクローズを握り潰す。
 const LIST_OPEN_CLOSE_GUARD_MS = 800
+// 録音停止のdoubleTap/listEvent残りが返信確認画面に刺さるため、描画直後だけ捨てる。
+const REPLY_CONFIRM_EVENT_GUARD_MS = 1200
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -156,6 +166,7 @@ function screenLabel(screen: NotificationUIState['screen']): string {
     case 'ask-question-detail': return 'ask-q-detail'
     case 'reply-recording': return 'recording'
     case 'reply-confirm': return 'confirm'
+    case 'reply-confirm-actions': return 'confirm-actions'
     case 'reply-sending': return 'sending'
   }
 }
@@ -288,26 +299,27 @@ document.getElementById('connect-btn')!.addEventListener('click', async () => {
           log('DeviceInfo: 取得結果なし')
         }
       } catch (err) {
-        log(`DeviceInfo取得失敗: ${err instanceof Error ? err.message : String(err)}`)
+        log(`DeviceInfo取得失敗: ${errorMessage(err)}`)
       }
 
       if (!deviceStatusListenerAttached) {
         try {
           connection.bridge.onDeviceStatusChanged((status) => {
+            if (typeof status.isWearing === 'boolean') deviceWearing = status.isWearing
             log(
               `DeviceStatus: connectType=${status.connectType}, wearing=${status.isWearing}, battery=${status.batteryLevel}%`,
             )
           })
           deviceStatusListenerAttached = true
         } catch (err) {
-          log(`DeviceStatus購読失敗: ${err instanceof Error ? err.message : String(err)}`)
+          log(`DeviceStatus購読失敗: ${errorMessage(err)}`)
         }
       }
     }
 
     if (!speechCapabilityLogged) {
       log(
-        `STT設定: enabled=${appConfig.sttEnabled ? 'yes' : 'no'}, forceError=${appConfig.sttForceError ? 'yes' : 'no'}, provider=${canUseGroqStt() ? 'hub' : 'mock'}`,
+        `STT設定: enabled=${appConfig.sttEnabled ? 'yes' : 'no'}, forceError=${appConfig.sttForceError ? 'yes' : 'no'}, provider=${appConfig.sttProvider}, mode=${canUseOpenaiRealtimeStt() ? 'realtime' : canUseGroqStt() ? 'hub' : 'mock'}`,
       )
       if (appConfig.webSpeechCompare) {
         const cap = getWebSpeechSupport()
@@ -321,13 +333,33 @@ document.getElementById('connect-btn')!.addEventListener('click', async () => {
     if (!audioListenerAttached) {
       const audioInfo = document.getElementById('audio-info')!
       connection.onAudio((pcm: Uint8Array) => {
-        // 返信録音中なら返信用チャンクに追加
+        // 返信録音中 (realtime mode)
+        if (replyIsRecording && realtimeSTT) {
+          realtimeSTT.sendAudio(pcm)
+          replyAudioTotalBytes += pcm.length
+          return
+        }
+        // 返信録音中 (batch mode - existing)
         if (replyIsRecording) {
           replyAudioChunks.push(pcm)
           replyAudioTotalBytes += pcm.length
           return
         }
 
+        // Dev mic test (realtime mode)
+        if (isRecording && realtimeSTT) {
+          realtimeSTT.sendAudio(pcm)
+          audioTotalBytes += pcm.length
+          const durationMs = (audioTotalBytes / 2) / 16
+          audioInfo.textContent = [
+            `[realtime] 合計バイト: ${audioTotalBytes}`,
+            `推定時間: ${(durationMs / 1000).toFixed(1)}秒`,
+            `最新チャンク: ${pcm.length} bytes`,
+          ].join('\n')
+          return
+        }
+
+        // Dev mic test (batch mode - existing)
         if (!isRecording) return
 
         audioChunks.push(pcm)
@@ -343,7 +375,7 @@ document.getElementById('connect-btn')!.addEventListener('click', async () => {
       audioListenerAttached = true
     }
     ensureNotifEventHandler(connection)
-    startNotificationPolling()
+    connectNotificationSSE()
   } catch (err) {
     setPill('connection-status', '接続失敗', 'error')
     log(`接続失敗: ${err}`)
@@ -418,9 +450,30 @@ document.getElementById('mic-start-btn')!.addEventListener('click', async () => 
         log('Web Speech比較キャプチャ開始（ブラウザ/端末マイク系）')
       } catch (err) {
         webSpeechSession = null
-        webSpeechError = err instanceof Error ? err.message : String(err)
+        webSpeechError = errorMessage(err)
         log(`Web Speech開始失敗: ${webSpeechError}`)
       }
+    }
+  }
+
+  // Start realtime STT if configured
+  if (canUseOpenaiRealtimeStt()) {
+    try {
+      realtimeSTT = new OpenAIRealtimeSTT(appConfig.notificationHubUrl, createHubHeaders())
+      await realtimeSTT.start((text, isFinal) => {
+        const audioInfo = document.getElementById('audio-info')!
+        const prefix = isFinal ? '[final]' : '[partial]'
+        audioInfo.textContent = `${prefix} ${text}`
+      })
+      log('OpenAI Realtime STT開始')
+    } catch (err) {
+      realtimeSTT = null
+      log(`OpenAI Realtime STT開始失敗: ${errorMessage(err)}`)
+      micStatus.textContent = `Realtime STT開始失敗: ${errorMessage(err)}`
+      startBtn.disabled = false
+      stopBtn.disabled = true
+      isRecording = false
+      return
     }
   }
 
@@ -452,7 +505,7 @@ document.getElementById('mic-stop-btn')!.addEventListener('click', async () => {
         `Web Speech停止: final=${ws.finalText ? 'yes' : 'no'}, interim=${ws.interimText ? 'yes' : 'no'}${ws.error ? `, error=${ws.error}` : ''}`,
       )
     } catch (err) {
-      webSpeechError = err instanceof Error ? err.message : String(err)
+      webSpeechError = errorMessage(err)
       log(`Web Speech停止失敗: ${webSpeechError}`)
     } finally {
       webSpeechSession = null
@@ -461,10 +514,11 @@ document.getElementById('mic-stop-btn')!.addEventListener('click', async () => {
   startBtn.disabled = false
   stopBtn.disabled = true
 
-  micStatus.textContent = `録音完了 (${audioChunks.length}チャンク, ${audioTotalBytes}バイト)`
-  log(`マイク停止: ${audioChunks.length}チャンク, ${audioTotalBytes}バイト取得`)
+  micStatus.textContent = `録音完了 (${realtimeSTT ? 'realtime' : `${audioChunks.length}チャンク`}, ${audioTotalBytes}バイト)`
+  log(`マイク停止: ${realtimeSTT ? 'realtime' : `${audioChunks.length}チャンク`}, ${audioTotalBytes}バイト取得`)
 
   if (audioTotalBytes === 0) {
+    if (realtimeSTT) { realtimeSTT.abort(); realtimeSTT = null }
     return
   }
 
@@ -472,8 +526,10 @@ document.getElementById('mic-stop-btn')!.addEventListener('click', async () => {
   log('STT開始')
 
   try {
-    const stt = await transcribePcmChunks(audioChunks)
-    const formatted = formatForG2Display(stt.text || '（認識結果なし）')
+    const stt = realtimeSTT
+      ? await (async () => { const r = await realtimeSTT!.stop(); realtimeSTT = null; return r })()
+      : await transcribePcmChunks(audioChunks)
+    const formatted = formatForG2ScrollableText(stt.text || '（認識結果なし）')
     micStatus.textContent = `STT完了 (${stt.provider}${stt.model ? `:${stt.model}` : ''})`
     const infoLines = [
       audioInfo.textContent,
@@ -499,7 +555,8 @@ document.getElementById('mic-stop-btn')!.addEventListener('click', async () => {
     }
     await glassesUI.showText(connection, formatted)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    if (realtimeSTT) { realtimeSTT.abort(); realtimeSTT = null }
+    const message = errorMessage(err)
     micStatus.textContent = 'STT失敗'
     log(`STT失敗: ${message}`)
     if (connection) {
@@ -540,14 +597,16 @@ const notifState: NotificationUIState = {
 }
 
 let notifEventRegisteredFor: object | null = null // ハンドラ登録済みの connection を追跡
-let notifPollingStarted = false
 let lastG2UserEventAt = 0
 let pendingAutoOpenOnNew = false
 let pendingListRefresh = false
+let replyConfirmIgnoreUntil = 0
 
 function canAutoOpenForScreen(screen: NotificationUIState['screen']): boolean {
-  // 録音/送信中は割り込まない。他の画面では新着優先で一覧へ寄せる。
-  return screen !== 'reply-recording' && screen !== 'reply-confirm' && screen !== 'reply-sending' && screen !== 'ask-question' && screen !== 'ask-question-detail'
+  // 録音/送信中・詳細閲覧中は割り込まない。idle/list では新着優先で一覧へ寄せる。
+  return screen !== 'reply-recording' && screen !== 'reply-confirm' && screen !== 'reply-confirm-actions' && screen !== 'reply-sending'
+    && screen !== 'ask-question' && screen !== 'ask-question-detail'
+    && screen !== 'detail' && screen !== 'detail-actions'
 }
 
 async function flushPendingNotificationUi(reason: string) {
@@ -569,129 +628,242 @@ async function flushPendingNotificationUi(reason: string) {
   }
 }
 
-function startNotificationPolling() {
-  if (notifPollingStarted) return
-  notifPollingStarted = true
-  log(`通知ポーリング開始: interval=${appConfig.notificationPollIntervalMs}ms autoOpen=${appConfig.notificationAutoOpenOnNew ? 'on' : 'off'}`)
-  setInterval(async () => {
+let sseSource: EventSource | null = null
+let contextPollTimer: ReturnType<typeof setInterval> | null = null
+let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+function schedulePendingFlush() {
+  if (pendingFlushTimer) return
+  pendingFlushTimer = setTimeout(() => {
+    pendingFlushTimer = null
     if (!connection) return
-    fetchContextStatus()
-    await flushPendingNotificationUi('polling')
-    // 描画中はスキップ（SDK呼び出し衝突防止）
-    if (glassesUI.isRendering()) return
+    if (glassesUI.isRendering() && (pendingAutoOpenOnNew || pendingListRefresh)) {
+      schedulePendingFlush()
+      return
+    }
+    void flushPendingNotificationUi('sse-retry')
+  }, 500)
+}
+
+// 画面復帰時は保留中のUIを即反映する
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && connection) void flushPendingNotificationUi('visible')
+  })
+}
+
+function connectNotificationSSE() {
+  if (sseSource) return
+
+  const sseUrl = `${appConfig.notificationHubUrl}/api/events`
+  log(`SSE接続開始: ${sseUrl}`)
+  sseSource = new EventSource(sseUrl)
+
+  let sseSynced = false
+  let sseQueue: MessageEvent[] = []
+
+  sseSource.addEventListener('open', async () => {
+    hubReachable = true
+    updateDashboard()
+    log('SSE接続成功')
     try {
       const items = await notifClient.list(20)
-      hubReachable = true
-      lastNotifRefreshAt = Date.now()
-      const toKey = (list: NotificationItem[]) => list.map((i) => `${i.id}:${i.replyStatus ?? ''}`).join(',')
-      const oldKey = toKey(notifState.items)
-      const oldIdSet = new Set(notifState.items.map((i) => i.id))
-      const newKey = toKey(items)
-      if (oldKey === newKey) return // 変化なし
-
       notifState.items = items
-      const hasNewItems = items.some((item) => !oldIdSet.has(item.id))
-      const statusEl = document.getElementById('notif-status')!
-      statusEl.textContent = `${items.length}件 (自動更新)`
-      const wantsAutoOpen = hasNewItems && appConfig.notificationAutoOpenOnNew
-      const canAutoOpenNow = wantsAutoOpen && canAutoOpenForScreen(notifState.screen) && !glassesUI.isRendering()
-
-      // 新着が来た時点で pending を立てておく。
-      // これにより reply-sending 等で一度スキップしても、画面復帰後の次サイクルで回収できる。
-      if (wantsAutoOpen && !canAutoOpenNow) {
-        if (!pendingAutoOpenOnNew) {
-          const reason = canAutoOpenForScreen(notifState.screen) ? '描画中' : `screen=${notifState.screen}`
-          log(`通知自動更新: ${items.length}件 (新着あり/自動表示を保留 reason=${reason})`)
-        }
-        pendingAutoOpenOnNew = true
-      }
-
-      if (canAutoOpenNow) {
-        notifState.screen = 'list'
-        notifState.selectedIndex = 0
-        await glassesUI.showNotificationList(connection!, items)
-        pendingAutoOpenOnNew = false
-        log(`通知自動更新: ${items.length}件 (新着検知で自動表示)`)
-      } else if (notifState.screen === 'list' && !glassesUI.isRendering()) {
-        // ユーザー操作直後はリスト再描画を遅延し、連続rebuild競合を抑える
-        if (Date.now() - lastG2UserEventAt < 4000) {
-          log(`通知自動更新: ${items.length}件 (操作中のため描画保留)`)
-          updateNotifInfo()
-          return
-        }
-        // リスト画面かつ描画中でなければG2を更新
-        await glassesUI.showNotificationList(connection!, items)
-        pendingListRefresh = false
-        log(`通知自動更新: ${items.length}件 (リスト更新)`)
-      } else {
-        if (hasNewItems && notifState.screen === 'list') {
-          pendingListRefresh = true
-        }
-        const mode = hasNewItems
-          ? `新着あり/自動表示スキップ screen=${notifState.screen} autoOpen=${appConfig.notificationAutoOpenOnNew ? 'on' : 'off'}`
-          : 'バックグラウンド'
-        log(`通知自動更新: ${items.length}件 (${mode})`)
-      }
-      updateNotifInfo()
-    } catch {
-      hubReachable = false
+      lastNotifRefreshAt = Date.now()
       updateDashboard()
-      // ポーリング失敗は静かに無視
+      if (notifState.screen === 'list' && connection && !glassesUI.isRendering()) {
+        await glassesUI.showNotificationList(connection, notifState.items)
+      }
+    } catch (err) {
+      log(`SSE初期リスト取得失敗: ${errorMessage(err)}`)
+    } finally {
+      // list取得の成否を問わず、キューに溜まったSSEイベントをマージ
+      sseSynced = true
+      for (const e of sseQueue) {
+        applySseEvent(e)
+      }
+      sseQueue = []
     }
-  }, appConfig.notificationPollIntervalMs)
+  })
+
+  sseSource.addEventListener('error', () => {
+    hubReachable = false
+    sseSynced = false
+    sseQueue = []
+    updateDashboard()
+  })
+
+  sseSource.addEventListener('notification-added', (e: MessageEvent) => {
+    if (!sseSynced) { sseQueue.push(e); return }
+    void handleSseNotificationAdded(e)
+  })
+
+  sseSource.addEventListener('notification-updated', (e: MessageEvent) => {
+    if (!sseSynced) { sseQueue.push(e); return }
+    void handleSseNotificationUpdated(e)
+  })
+
+  // context-status は SSE と無関係、別タイマーで低頻度ポーリング
+  if (!contextPollTimer) {
+    fetchContextStatus()
+    contextPollTimer = setInterval(() => {
+      if (connection) fetchContextStatus()
+    }, 30_000)
+  }
+}
+
+function applySseEvent(e: MessageEvent) {
+  if (e.type === 'notification-added') void handleSseNotificationAdded(e)
+  else if (e.type === 'notification-updated') void handleSseNotificationUpdated(e)
+}
+
+async function handleSseNotificationAdded(e: MessageEvent) {
+  const item: NotificationItem = JSON.parse(e.data)
+  lastNotifRefreshAt = Date.now()
+
+  const existingIdx = notifState.items.findIndex(n => n.id === item.id)
+  if (existingIdx >= 0) {
+    notifState.items[existingIdx] = item
+  } else {
+    notifState.items.unshift(item)
+    if (notifState.items.length > 20) notifState.items.pop()
+  }
+
+  // auto-open ロジック（現行ポーリングからの移植）
+  const wantsAutoOpen = appConfig.notificationAutoOpenOnNew
+  const canAutoOpenNow = wantsAutoOpen && canAutoOpenForScreen(notifState.screen) && connection && !glassesUI.isRendering()
+
+  if (canAutoOpenNow) {
+    notifState.screen = 'list'
+    notifState.selectedIndex = 0
+    await glassesUI.showNotificationList(connection!, notifState.items)
+    pendingAutoOpenOnNew = false
+    log(`SSE新着通知: "${item.title}" (自動表示)`)
+  } else if (wantsAutoOpen) {
+    pendingAutoOpenOnNew = true
+    schedulePendingFlush()
+    log(`SSE新着通知: "${item.title}" (自動表示保留 screen=${notifState.screen})`)
+  } else if (notifState.screen === 'list' && connection && !glassesUI.isRendering()) {
+    await glassesUI.showNotificationList(connection, notifState.items)
+    log(`SSE新着通知: "${item.title}" (リスト更新)`)
+  } else {
+    if (notifState.screen === 'list') {
+      pendingListRefresh = true
+      schedulePendingFlush()
+    }
+    log(`SSE新着通知: "${item.title}"`)
+  }
+
+  // 詳細画面のバッジ表示
+  if ((notifState.screen === 'detail' || notifState.screen === 'detail-actions') && notifState.detailItem && connection) {
+    const detail = notifState.detailItem
+    const pages = glassesUI.getDetailPageCount(detail.fullText)
+    const ctxSuffix = latestContextPct != null ? ` ctx:${Math.round(latestContextPct)}%` : ''
+    const pageInfo = pages > 1 ? ` [${notifState.detailPageIndex + 1}/${pages}]${ctxSuffix}` : ctxSuffix
+    const badgeHeader = `[●新着] ${detail.title}${pageInfo}`
+    await glassesUI.updateDetailHeaderBadge(connection, badgeHeader)
+  }
+
+  updateDashboard()
+}
+
+async function handleSseNotificationUpdated(e: MessageEvent) {
+  const item: NotificationItem = JSON.parse(e.data)
+  lastNotifRefreshAt = Date.now()
+  const idx = notifState.items.findIndex(n => n.id === item.id)
+  if (idx >= 0) {
+    notifState.items[idx] = item
+  }
+  if (notifState.screen === 'list' && connection) {
+    if (!glassesUI.isRendering()) {
+      await glassesUI.showNotificationList(connection, notifState.items)
+    } else {
+      pendingListRefresh = true
+      schedulePendingFlush()
+    }
+  }
+  updateDashboard()
+  log(`SSE通知更新: "${item.title}" status=${item.replyStatus ?? 'none'}`)
 }
 
 function updateNotifInfo() {
   const infoEl = document.getElementById('notif-info')!
-  if (notifState.screen === 'idle') {
-    const autoOpenLabel = appConfig.notificationAutoOpenOnNew ? 'ON' : 'OFF'
-    infoEl.textContent = `待機中（G2でダブルタップすると通知一覧）\n新着自動表示: ${autoOpenLabel}`
-  } else if (notifState.screen === 'list') {
-    const lines = notifState.items.map((item, i) => {
-      const marker = i === notifState.selectedIndex ? '>' : ' '
-      return `${marker} ${item.title} (${item.source})`
-    })
-    infoEl.textContent = lines.length > 0 ? lines.join('\n') : '通知なし'
-  } else if (notifState.screen === 'detail' && notifState.detailItem) {
-    const d = notifState.detailItem
-    const replyHint = d.replyCapable ? ' | Click=操作メニュー' : ''
-    infoEl.textContent = [
-      `[詳細] ${d.title}`,
-      `Source: ${d.source} | replyCapable: ${d.replyCapable}`,
-      `Chunk: ${notifState.detailPageIndex + 1}/${notifState.detailPages.length} (firmware scroll)`,
-      `操作: FW自動スクロール, 境界到達→チャンク切替, DblClick=戻る${replyHint}`,
-      '',
-      notifState.detailPages[notifState.detailPageIndex] ?? '',
-    ].join('\n')
-  } else if (notifState.screen === 'detail-actions' && notifState.detailItem) {
-    infoEl.textContent = [
-      `[操作] ${notifState.detailItem.title}`,
-      '0=コメント, 1=Approve, 2=Deny, 3=◀ 戻る',
-      'Click=選択, DblClick=詳細に戻る',
-    ].join('\n')
-  } else if (notifState.screen === 'ask-question-detail') {
-    const q = notifState.askQuestions[notifState.askQuestionIndex]
-    infoEl.textContent = [
-      `[質問詳細 ${notifState.askQuestionIndex + 1}/${notifState.askQuestions.length}]`,
-      `Page: ${notifState.detailPageIndex + 1}/${notifState.detailPages.length}`,
-      q?.question?.slice(0, 80) ?? '',
-      'Scroll=ページ送り, 最終→選択肢, DblClick=戻る',
-    ].join('\n')
-  } else if (notifState.screen === 'ask-question') {
-    const q = notifState.askQuestions[notifState.askQuestionIndex]
-    const opts = q ? q.options.map((o, i) => `${i}=${o.label}`).join(', ') : ''
-    infoEl.textContent = [
-      `[質問 ${notifState.askQuestionIndex + 1}/${notifState.askQuestions.length}]`,
-      q?.question ?? '',
-      opts,
-      'Click=選択, DblClick=戻る',
-    ].join('\n')
-  } else if (notifState.screen === 'reply-recording') {
-    infoEl.textContent = `[返信録音中] ${replyAudioTotalBytes} bytes\nDblClick=停止, Swipe=キャンセル`
-  } else if (notifState.screen === 'reply-confirm') {
-    infoEl.textContent = `[返信確認]\n"${notifState.replyText}"\n\n送信=0, 再録=1, キャンセル=2`
-  } else if (notifState.screen === 'reply-sending') {
-    infoEl.textContent = '[返信送信中...]'
+  switch (notifState.screen) {
+    case 'idle': {
+      const autoOpenLabel = appConfig.notificationAutoOpenOnNew ? 'ON' : 'OFF'
+      infoEl.textContent = `待機中（G2でダブルタップすると通知一覧）\n新着自動表示: ${autoOpenLabel}`
+      break
+    }
+    case 'list': {
+      const lines = notifState.items.map((item, i) => {
+        const marker = i === notifState.selectedIndex ? '>' : ' '
+        return `${marker} ${item.title} (${item.source})`
+      })
+      infoEl.textContent = lines.length > 0 ? lines.join('\n') : '通知なし'
+      break
+    }
+    case 'detail': {
+      const d = notifState.detailItem
+      if (d) {
+        const replyHint = d.replyCapable ? ' | Click=操作メニュー' : ''
+        infoEl.textContent = [
+          `[詳細] ${d.title}`,
+          `Source: ${d.source} | replyCapable: ${d.replyCapable}`,
+          `Chunk: ${notifState.detailPageIndex + 1}/${notifState.detailPages.length} (firmware scroll)`,
+          `操作: FW自動スクロール, 境界到達→チャンク切替, DblClick=戻る${replyHint}`,
+          '',
+          notifState.detailPages[notifState.detailPageIndex] ?? '',
+        ].join('\n')
+      }
+      break
+    }
+    case 'detail-actions':
+      if (notifState.detailItem) {
+        infoEl.textContent = [
+          `[操作] ${notifState.detailItem.title}`,
+          '0=コメント, 1=Approve, 2=Deny, 3=◀ 戻る',
+          'Click=選択, DblClick=詳細に戻る',
+        ].join('\n')
+      }
+      break
+    case 'ask-question-detail': {
+      const q = notifState.askQuestions[notifState.askQuestionIndex]
+      infoEl.textContent = [
+        `[質問詳細 ${notifState.askQuestionIndex + 1}/${notifState.askQuestions.length}]`,
+        `Page: ${notifState.detailPageIndex + 1}/${notifState.detailPages.length}`,
+        q?.question?.slice(0, 80) ?? '',
+        'Scroll=ページ送り, 最終→選択肢, DblClick=戻る',
+      ].join('\n')
+      break
+    }
+    case 'ask-question': {
+      const q = notifState.askQuestions[notifState.askQuestionIndex]
+      const opts = q ? q.options.map((o, i) => `${i}=${o.label}`).join(', ') : ''
+      infoEl.textContent = [
+        `[質問 ${notifState.askQuestionIndex + 1}/${notifState.askQuestions.length}]`,
+        q?.question ?? '',
+        opts,
+        'Click=選択, DblClick=戻る',
+      ].join('\n')
+      break
+    }
+    case 'reply-recording':
+      infoEl.textContent = `[返信録音中] ${replyAudioTotalBytes} bytes\nDblClick=停止, Swipe=キャンセル`
+      break
+    case 'reply-confirm':
+      infoEl.textContent = [
+        '[返信確認]',
+        `Page: ${notifState.detailPageIndex + 1}/${notifState.detailPages.length}`,
+        notifState.replyText,
+        'Scroll=ページ送り, 最終→操作, DblClick=戻る',
+      ].join('\n')
+      break
+    case 'reply-confirm-actions':
+      infoEl.textContent = '[返信確認 操作]\n0=送信, 1=再録, 2=キャンセル, 3=本文'
+      break
+    case 'reply-sending':
+      infoEl.textContent = '[返信送信中...]'
+      break
   }
   updateDashboard()
 }
@@ -713,12 +885,12 @@ document.getElementById('notif-fetch-btn')!.addEventListener('click', async () =
     }
     statusEl.textContent = `${items.length}件取得`
     document.getElementById('notif-show-g2-btn')!.removeAttribute('disabled')
-    startNotificationPolling()
+    connectNotificationSSE()
     updateNotifInfo()
     log(`通知取得: ${items.length}件`)
   } catch (err) {
     hubReachable = false
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = errorMessage(err)
     statusEl.textContent = `取得失敗: ${msg}`
     log(`通知取得失敗: ${msg}`)
     updateDashboard()
@@ -728,22 +900,127 @@ document.getElementById('notif-fetch-btn')!.addEventListener('click', async () =
 // 送信結果画面からリスト一覧に復帰する共通処理
 async function returnToListFromResult() {
   if (notifState.screen === 'list') return // 既に復帰済み
+  // ユーザーが自力で待機画面に戻った場合は割り込まない
+  if (notifState.screen === 'idle') return
   log('結果画面 → 通知一覧に復帰')
+  notifState.replyText = ''
+  if (connection) {
+    try {
+      notifState.items = await notifClient.list(20)
+    } catch { /* fallback to cached */ }
+  }
+  await returnToListScreen()
+  await flushPendingNotificationUi('result-return')
+}
+
+/** 返信/録音画面から元の操作画面（ask-question or detail-actions）に戻る */
+async function returnToReplyOriginScreen(): Promise<void> {
+  if (notifState.detailItem && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
+    notifState.screen = 'ask-question'
+    const q = notifState.askQuestions[notifState.askQuestionIndex]
+    if (connection) {
+      await glassesUI.showAskUserQuestion(connection, q, notifState.askQuestionIndex, notifState.askQuestions.length)
+    }
+  } else {
+    notifState.screen = 'detail-actions'
+    if (notifState.detailItem && connection) {
+      await glassesUI.showNotificationActions(connection, notifState.detailItem)
+    }
+  }
+  updateNotifInfo()
+}
+
+/** 返信録音画面に遷移し、マイクを開始する */
+async function startReplyRecording(): Promise<void> {
+  if (!connection) return
+  notifState.screen = 'reply-recording'
+  notifState.replyText = ''
+  replyAudioChunks = []
+  replyAudioTotalBytes = 0
+  replyStopInFlight = false
+
+  // Start realtime STT if configured
+  if (canUseOpenaiRealtimeStt()) {
+    let realtimeCompleted = ''
+    let realtimeDelta = ''
+    try {
+      realtimeSTT = new OpenAIRealtimeSTT(appConfig.notificationHubUrl, createHubHeaders())
+      await realtimeSTT.start((text, isFinal) => {
+        if (isFinal) {
+          realtimeCompleted += text
+          realtimeDelta = ''
+        } else {
+          realtimeDelta += text
+        }
+        const display = realtimeCompleted + realtimeDelta
+        if (display && connection) {
+          glassesUI.updateReplyRecordingBody(connection, display)
+        }
+      })
+      log('返信録音: OpenAI Realtime STT開始')
+    } catch (err) {
+      realtimeSTT = null
+      log(`返信録音: Realtime STT開始失敗: ${errorMessage(err)}`)
+      // Fall through - recording will still work but STT will fail at stop
+    }
+  }
+
+  await glassesUI.showReplyRecording(connection)
+  if (connection.mode === 'bridge' && !glassesUI.hasRenderedPage(connection)) {
+    await glassesUI.ensureBasePage(connection, 'マイク録音中...')
+  }
+  await connection.startAudio()
+  replyIsRecording = true
+  updateNotifInfo()
+}
+
+async function showReplyConfirmTextPage(): Promise<void> {
+  if (!connection || !notifState.detailItem || !notifState.replyText) return
+  const confirmText = `${notifState.replyText}\n\n---\n送信・再録は最後までスクロール`
+  const pageCount = glassesUI.getDetailPageCount(confirmText)
+  notifState.detailPageIndex = Math.max(0, Math.min(notifState.detailPageIndex, pageCount - 1))
+  notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
+  const syntheticDetail: NotificationDetail = {
+    ...notifState.detailItem,
+    title: '返信内容',
+    fullText: confirmText,
+    replyCapable: true,
+  }
+  await glassesUI.showNotificationDetail(connection, syntheticDetail, notifState.detailPageIndex, pageCount)
+}
+
+/** AskUserQuestion の質問画面に遷移する（短い質問は選択肢直接、長い質問は詳細ページ経由） */
+async function navigateToAskQuestion(question: AskQuestionData, questionIndex: number, totalQuestions: number): Promise<void> {
+  if (!connection || !notifState.detailItem) return
+  if (glassesUI.isAskQuestionShort(question)) {
+    notifState.screen = 'ask-question'
+    await glassesUI.showAskUserQuestion(connection, question, questionIndex, totalQuestions)
+  } else {
+    const fullText = glassesUI.buildAskQuestionFullText(question, questionIndex, totalQuestions)
+    const pageCount = glassesUI.getDetailPageCount(fullText)
+    notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
+    notifState.detailPageIndex = 0
+    notifState.screen = 'ask-question-detail'
+    const syntheticDetail = { ...notifState.detailItem, title: 'AskUserQuestion', fullText }
+    await glassesUI.showNotificationDetail(connection, syntheticDetail, 0, pageCount)
+    lastDetailScrollAt = Date.now()
+  }
+  clearPendingScrollEvent()
+  updateNotifInfo()
+}
+
+/** 通知一覧画面に遷移し、状態をリセットして描画する */
+async function returnToListScreen(): Promise<void> {
   notifState.screen = 'list'
   notifState.detailItem = null
-  notifState.replyText = ''
   notifState.selectedIndex = 0
   notifState.askQuestions = []
   notifState.askQuestionIndex = 0
   notifState.askAnswers = {}
   if (connection) {
-    try {
-      notifState.items = await notifClient.list(20)
-    } catch { /* fallback to cached */ }
     await glassesUI.showNotificationList(connection, notifState.items)
   }
   updateNotifInfo()
-  await flushPendingNotificationUi('result-return')
 }
 
 function clearPendingNotifEvent() {
@@ -770,6 +1047,9 @@ async function enterIdleScreen(reason: string) {
   idleTapDuringRender = false
   lastIdleEventAt = 0
   idleOpenBlockedUntil = Date.now() + IDLE_REOPEN_COOLDOWN_MS
+  // ユーザーが明示的に待機画面に戻ったので、保留中の自動復帰を取り消す
+  pendingAutoOpenOnNew = false
+  pendingListRefresh = false
   clearPendingNotifEvent()
   if (connection) {
     await glassesUI.showIdleLauncher(connection, { dimMode: appConfig.notificationIdleDimMode })
@@ -930,21 +1210,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
                 notifState.askQuestions = questions
                 notifState.askQuestionIndex = 0
                 notifState.askAnswers = {}
-                if (glassesUI.isAskQuestionShort(questions[0])) {
-                  notifState.screen = 'ask-question'
-                  await glassesUI.showAskUserQuestion(connection!, questions[0], 0, questions.length)
-                } else {
-                  const fullText = glassesUI.buildAskQuestionFullText(questions[0], 0, questions.length)
-                  const pageCount = glassesUI.getDetailPageCount(fullText)
-                  notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
-                  notifState.detailPageIndex = 0
-                  notifState.screen = 'ask-question-detail'
-                  const syntheticDetail = { ...detail, title: 'AskUserQuestion', fullText }
-                  await glassesUI.showNotificationDetail(connection!, syntheticDetail, 0, pageCount)
-                  lastDetailScrollAt = Date.now()
-                }
-                clearPendingScrollEvent()
-                updateNotifInfo()
+                await navigateToAskQuestion(questions[0], 0, questions.length)
                 return
               }
             }
@@ -960,7 +1226,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             lastDetailScrollAt = Date.now()
             updateNotifInfo()
           } catch (err) {
-            log(`通知詳細取得失敗: ${err instanceof Error ? err.message : String(err)}`)
+            log(`通知詳細取得失敗: ${errorMessage(err)}`)
           }
         }
       } else if (notifState.screen === 'detail') {
@@ -972,11 +1238,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
         const pageCount = notifState.detailPages.length
         if (isDoubleTapEventType(eventType)) {
           log('通知詳細: double tap → リストに戻る')
-          notifState.screen = 'list'
-          notifState.detailItem = null
-          notifState.selectedIndex = 0
-          await glassesUI.showNotificationList(connection!, notifState.items)
-          updateNotifInfo()
+          await returnToListScreen()
           return
         }
         if (shouldIgnoreDetailScroll(eventType)) return
@@ -993,14 +1255,11 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             // 描画完了後にスクロールイベントのみクリア＋クールダウン更新（誤発火を防止）
             clearPendingScrollEvent()
             lastDetailScrollAt = Date.now()
+            updateNotifInfo()
           } else {
             log('通知詳細: 最初のページ → リストに戻る')
-            notifState.screen = 'list'
-            notifState.detailItem = null
-            notifState.selectedIndex = 0
-            await glassesUI.showNotificationList(connection!, notifState.items)
+            await returnToListScreen()
           }
-          updateNotifInfo()
           return
         }
 
@@ -1032,11 +1291,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           // ◀ 戻る (index=3)
           if (index === 3) {
             log('通知アクション: 一覧に戻る')
-            notifState.screen = 'list'
-            notifState.detailItem = null
-            notifState.selectedIndex = 0
-            await glassesUI.showNotificationList(connection!, notifState.items)
-            updateNotifInfo()
+            await returnToListScreen()
             return
           }
 
@@ -1063,7 +1318,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
                 }
               }
             } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err)
+              const msg = errorMessage(err)
               log(`通知アクション送信失敗: action=${action} ${msg}`)
               if (notifState.screen === 'reply-sending') {
                 await glassesUI.showReplyResult(connection!, false, msg)
@@ -1076,20 +1331,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           if (index === 0) {
             // コメント
             log('通知アクション: コメント（録音開始）')
-            notifState.screen = 'reply-recording'
-            notifState.replyText = ''
-            replyAudioChunks = []
-            replyAudioTotalBytes = 0
-            replyStopInFlight = false
-
-            await glassesUI.showReplyRecording(connection!)
-
-            if (connection!.mode === 'bridge' && !glassesUI.hasRenderedPage(connection!)) {
-              await glassesUI.ensureBasePage(connection!, 'マイク録音中...')
-            }
-            await connection!.startAudio()
-            replyIsRecording = true
-            updateNotifInfo()
+            await startReplyRecording()
             return
           }
         }
@@ -1100,50 +1342,37 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
         const aqPageCount = notifState.detailPages.length
         if (isDoubleTapEventType(eventType)) {
           log('AskQuestion詳細: double tap → リストに戻る')
-          notifState.screen = 'list'
-          notifState.detailItem = null
-          notifState.askQuestions = []
-          notifState.askQuestionIndex = 0
-          notifState.askAnswers = {}
-          notifState.selectedIndex = 0
-          await glassesUI.showNotificationList(connection!, notifState.items)
-          updateNotifInfo()
+          await returnToListScreen()
           return
         }
         if (shouldIgnoreDetailScroll(eventType)) return
 
+        // AskQuestion詳細のページ送り共通ヘルパー
+        const showCurrentAqPage = async () => {
+          const currentQ = notifState.askQuestions[notifState.askQuestionIndex]
+          const fullText = glassesUI.buildAskQuestionFullText(currentQ, notifState.askQuestionIndex, notifState.askQuestions.length)
+          const syntheticDetail = { ...notifState.detailItem!, title: 'AskUserQuestion', fullText }
+          await glassesUI.showNotificationDetail(connection!, syntheticDetail, notifState.detailPageIndex, aqPageCount)
+          clearPendingScrollEvent()
+          lastDetailScrollAt = Date.now()
+        }
+
         if (eventType === G2_EVENT.SCROLL_TOP) {
           if (notifState.detailPageIndex > 0) {
             notifState.detailPageIndex--
-            const currentQ = notifState.askQuestions[notifState.askQuestionIndex]
-            const fullText = glassesUI.buildAskQuestionFullText(currentQ, notifState.askQuestionIndex, notifState.askQuestions.length)
-            const syntheticDetail = { ...notifState.detailItem, title: 'AskUserQuestion', fullText }
-            await glassesUI.showNotificationDetail(connection!, syntheticDetail, notifState.detailPageIndex, aqPageCount)
-            clearPendingScrollEvent()
-            lastDetailScrollAt = Date.now()
+            await showCurrentAqPage()
+            updateNotifInfo()
           } else {
             log('AskQuestion詳細: 最初のページ → リストに戻る')
-            notifState.screen = 'list'
-            notifState.detailItem = null
-            notifState.askQuestions = []
-            notifState.askQuestionIndex = 0
-            notifState.askAnswers = {}
-            notifState.selectedIndex = 0
-            await glassesUI.showNotificationList(connection!, notifState.items)
+            await returnToListScreen()
           }
-          updateNotifInfo()
           return
         }
 
         if (eventType === G2_EVENT.SCROLL_BOTTOM) {
           if (notifState.detailPageIndex < aqPageCount - 1) {
             notifState.detailPageIndex++
-            const currentQ = notifState.askQuestions[notifState.askQuestionIndex]
-            const fullText = glassesUI.buildAskQuestionFullText(currentQ, notifState.askQuestionIndex, notifState.askQuestions.length)
-            const syntheticDetail = { ...notifState.detailItem, title: 'AskUserQuestion', fullText }
-            await glassesUI.showNotificationDetail(connection!, syntheticDetail, notifState.detailPageIndex, aqPageCount)
-            clearPendingScrollEvent()
-            lastDetailScrollAt = Date.now()
+            await showCurrentAqPage()
           } else {
             log('AskQuestion詳細: 最終ページ → 選択肢画面へ')
             const currentQ = notifState.askQuestions[notifState.askQuestionIndex]
@@ -1160,13 +1389,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
 
         if (isDoubleTapEventType(eventType)) {
           log('AskUserQuestion: double tap → リストに戻る')
-          notifState.screen = 'list'
-          notifState.detailItem = null
-          notifState.askQuestions = []
-          notifState.askQuestionIndex = 0
-          notifState.askAnswers = {}
-          await glassesUI.showNotificationList(connection!, notifState.items)
-          updateNotifInfo()
+          await returnToListScreen()
           return
         }
 
@@ -1182,43 +1405,18 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             // ◀ 戻る: 長い質問は詳細画面に戻る、短い質問はリストに戻る
             if (!glassesUI.isAskQuestionShort(currentQ)) {
               log('AskUserQuestion: 戻る → 詳細画面')
-              const fullText = glassesUI.buildAskQuestionFullText(currentQ, notifState.askQuestionIndex, notifState.askQuestions.length)
-              const pageCount = glassesUI.getDetailPageCount(fullText)
-              notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
-              notifState.detailPageIndex = 0
-              notifState.screen = 'ask-question-detail'
-              const syntheticDetail = { ...notifState.detailItem!, title: 'AskUserQuestion', fullText }
-              await glassesUI.showNotificationDetail(connection!, syntheticDetail, 0, pageCount)
-              clearPendingScrollEvent()
-              lastDetailScrollAt = Date.now()
+              await navigateToAskQuestion(currentQ, notifState.askQuestionIndex, notifState.askQuestions.length)
             } else {
               log('AskUserQuestion: 戻る → リスト')
-              notifState.screen = 'list'
-              notifState.detailItem = null
-              notifState.askQuestions = []
-              notifState.askQuestionIndex = 0
-              notifState.askAnswers = {}
-              await glassesUI.showNotificationList(connection!, notifState.items)
+              await returnToListScreen()
             }
-            updateNotifInfo()
             return
           }
 
           if (index === optionCount) {
             // その他（音声入力）→ 録音画面へ
             log('AskUserQuestion: その他（音声入力）')
-            notifState.screen = 'reply-recording'
-            notifState.replyText = ''
-            replyAudioChunks = []
-            replyAudioTotalBytes = 0
-            replyStopInFlight = false
-            await glassesUI.showReplyRecording(connection!)
-            if (connection!.mode === 'bridge' && !glassesUI.hasRenderedPage(connection!)) {
-              await glassesUI.ensureBasePage(connection!, 'マイク録音中...')
-            }
-            await connection!.startAudio()
-            replyIsRecording = true
-            updateNotifInfo()
+            await startReplyRecording()
             return
           }
 
@@ -1232,21 +1430,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
             if (notifState.askQuestionIndex < notifState.askQuestions.length - 1) {
               notifState.askQuestionIndex++
               const nextQ = notifState.askQuestions[notifState.askQuestionIndex]
-              if (glassesUI.isAskQuestionShort(nextQ)) {
-                notifState.screen = 'ask-question'
-                await glassesUI.showAskUserQuestion(connection!, nextQ, notifState.askQuestionIndex, notifState.askQuestions.length)
-              } else {
-                const fullText = glassesUI.buildAskQuestionFullText(nextQ, notifState.askQuestionIndex, notifState.askQuestions.length)
-                const pageCount = glassesUI.getDetailPageCount(fullText)
-                notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
-                notifState.detailPageIndex = 0
-                notifState.screen = 'ask-question-detail'
-                const syntheticDetail = { ...notifState.detailItem!, title: 'AskUserQuestion', fullText }
-                await glassesUI.showNotificationDetail(connection!, syntheticDetail, 0, pageCount)
-                lastDetailScrollAt = Date.now()
-              }
-              clearPendingScrollEvent()
-              updateNotifInfo()
+              await navigateToAskQuestion(nextQ, notifState.askQuestionIndex, notifState.askQuestions.length)
               return
             }
 
@@ -1270,7 +1454,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
                 }
               }
             } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err)
+              const msg = errorMessage(err)
               log(`AskUserQuestion: 送信失敗 ${msg}`)
               if (notifState.screen === 'reply-sending') {
                 await glassesUI.showReplyResult(connection!, false, msg)
@@ -1298,65 +1482,43 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
 
           if (replyAudioTotalBytes === 0) {
             log('返信録音: 音声データなし → 前画面に戻る')
-            if (notifState.detailItem && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
-              notifState.screen = 'ask-question'
-              const q = notifState.askQuestions[notifState.askQuestionIndex]
-              await glassesUI.showAskUserQuestion(connection!, q, notifState.askQuestionIndex, notifState.askQuestions.length)
-            } else {
-              notifState.screen = 'detail-actions'
-              if (notifState.detailItem) {
-                await glassesUI.showNotificationActions(connection!, notifState.detailItem)
-              }
-            }
-            updateNotifInfo()
+            if (realtimeSTT) { realtimeSTT.abort(); realtimeSTT = null }
+            await returnToReplyOriginScreen()
             replyStopInFlight = false
             return
           }
 
           try {
-            const stt = await transcribePcmChunks(replyAudioChunks)
+            const stt = realtimeSTT
+              ? await (async () => { const r = await realtimeSTT!.stop(); realtimeSTT = null; return r })()
+              : await transcribePcmChunks(replyAudioChunks)
             const text = stt.text || ''
             log(`返信STT完了: provider=${stt.provider} text="${text}"`)
 
             if (!text) {
               log('返信STT: テキスト空 → 前画面に戻る')
-              if (notifState.detailItem && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
-                notifState.screen = 'ask-question'
-                const q = notifState.askQuestions[notifState.askQuestionIndex]
-                await glassesUI.showAskUserQuestion(connection!, q, notifState.askQuestionIndex, notifState.askQuestions.length)
-              } else {
-                notifState.screen = 'detail-actions'
-                if (notifState.detailItem) {
-                  await glassesUI.showNotificationActions(connection!, notifState.detailItem)
-                }
-              }
-              updateNotifInfo()
+              await returnToReplyOriginScreen()
               replyStopInFlight = false
               return
             }
 
             notifState.replyText = text
+            notifState.detailPageIndex = 0
             notifState.screen = 'reply-confirm'
-            await glassesUI.showReplyConfirm(connection!, text)
+            await showReplyConfirmTextPage()
+            clearPendingNotifEvent()
+            replyConfirmIgnoreUntil = Date.now() + REPLY_CONFIRM_EVENT_GUARD_MS
+            lastDetailScrollAt = Date.now()
             updateNotifInfo()
             replyStopInFlight = false
           } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err)
+            if (realtimeSTT) { realtimeSTT.abort(); realtimeSTT = null }
+            const msg = errorMessage(err)
             log(`返信STT失敗: ${msg}`)
             await glassesUI.showReplyResult(connection!, false, msg)
             // 3秒後に前画面に戻る
             setTimeout(async () => {
-              if (notifState.detailItem && connection && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
-                notifState.screen = 'ask-question'
-                const q = notifState.askQuestions[notifState.askQuestionIndex]
-                await glassesUI.showAskUserQuestion(connection, q, notifState.askQuestionIndex, notifState.askQuestions.length)
-              } else {
-                notifState.screen = 'detail-actions'
-                if (notifState.detailItem && connection) {
-                  await glassesUI.showNotificationActions(connection, notifState.detailItem)
-                }
-              }
-              updateNotifInfo()
+              await returnToReplyOriginScreen()
               replyStopInFlight = false
             }, 3000)
           }
@@ -1368,22 +1530,68 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           log('返信録音: キャンセル → 前画面に戻る')
           replyIsRecording = false
           await connection!.stopAudio()
-          if (notifState.detailItem && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
-            notifState.screen = 'ask-question'
-            const q = notifState.askQuestions[notifState.askQuestionIndex]
-            await glassesUI.showAskUserQuestion(connection!, q, notifState.askQuestionIndex, notifState.askQuestions.length)
-          } else {
-            notifState.screen = 'detail-actions'
-            if (notifState.detailItem) {
-              await glassesUI.showNotificationActions(connection!, notifState.detailItem)
-            }
-          }
-          updateNotifInfo()
+          if (realtimeSTT) { realtimeSTT.abort(); realtimeSTT = null }
+          await returnToReplyOriginScreen()
           replyStopInFlight = false
           return
         }
       } else if (notifState.screen === 'reply-confirm') {
-        // SDK標準ListContainer: listEventからクリック選択を取得
+        if (Date.now() < replyConfirmIgnoreUntil) {
+          log(`[event] reply-confirm ignored during guard: remaining=${replyConfirmIgnoreUntil - Date.now()}ms`)
+          return
+        }
+
+        if (normalized.source === 'list') return
+        const pageCount = notifState.detailPages.length
+
+        if (isDoubleTapEventType(eventType)) {
+          log('返信確認: double tap → 前画面に戻る')
+          notifState.replyText = ''
+          await returnToReplyOriginScreen()
+          return
+        }
+
+        if (shouldIgnoreDetailScroll(eventType)) return
+
+        if (eventType === G2_EVENT.SCROLL_TOP) {
+          if (notifState.detailPageIndex > 0) {
+            notifState.detailPageIndex--
+            await showReplyConfirmTextPage()
+            clearPendingScrollEvent()
+            lastDetailScrollAt = Date.now()
+            updateNotifInfo()
+          } else {
+            log('返信確認: 最初のページ → 前画面に戻る')
+            notifState.replyText = ''
+            await returnToReplyOriginScreen()
+          }
+          return
+        }
+
+        if (eventType === G2_EVENT.SCROLL_BOTTOM) {
+          if (notifState.detailPageIndex < pageCount - 1) {
+            notifState.detailPageIndex++
+            await showReplyConfirmTextPage()
+            clearPendingScrollEvent()
+            lastDetailScrollAt = Date.now()
+          } else {
+            log('返信確認: 最終ページ → 操作メニュー')
+            notifState.screen = 'reply-confirm-actions'
+            await glassesUI.showReplyConfirmActions(connection!)
+            clearPendingScrollEvent()
+          }
+          updateNotifInfo()
+          return
+        }
+      } else if (notifState.screen === 'reply-confirm-actions') {
+        if (isDoubleTapEventType(eventType)) {
+          log('返信確認操作: double tap → 本文に戻る')
+          notifState.screen = 'reply-confirm'
+          await showReplyConfirmTextPage()
+          updateNotifInfo()
+          return
+        }
+
         if (normalized.source === 'list') {
           const index = normalized.index ?? 0
 
@@ -1422,7 +1630,7 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
                 }
               }
             } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err)
+              const msg = errorMessage(err)
               log(`返信送信失敗: ${msg}`)
               if (notifState.screen === 'reply-sending') {
                 await glassesUI.showReplyResult(connection!, false, msg)
@@ -1436,31 +1644,23 @@ async function handleNotifEvent(conn: BridgeConnection, event: EvenHubEvent) {
           if (index === 1) {
             // 再録
             log('返信確認: 再録')
-            notifState.screen = 'reply-recording'
-            notifState.replyText = ''
-            replyAudioChunks = []
-            replyAudioTotalBytes = 0
-            await glassesUI.showReplyRecording(connection!)
-            await connection!.startAudio()
-            replyIsRecording = true
-            updateNotifInfo()
+            await startReplyRecording()
             return
           }
 
-          if (index === 2 || index === 3) {
-            // キャンセル / ◀ 戻る → 前画面に戻る
-            log(`返信確認: ${index === 2 ? 'キャンセル' : '戻る'} → 前画面に戻る`)
+          if (index === 2) {
+            // キャンセル → 前画面に戻る
+            log('返信確認: キャンセル → 前画面に戻る')
             notifState.replyText = ''
-            if (notifState.detailItem && isAskUserQuestionNotification(notifState.detailItem) && notifState.askQuestions.length > 0) {
-              notifState.screen = 'ask-question'
-              const q = notifState.askQuestions[notifState.askQuestionIndex]
-              await glassesUI.showAskUserQuestion(connection!, q, notifState.askQuestionIndex, notifState.askQuestions.length)
-            } else {
-              notifState.screen = 'detail-actions'
-              if (notifState.detailItem) {
-                await glassesUI.showNotificationActions(connection!, notifState.detailItem)
-              }
-            }
+            await returnToReplyOriginScreen()
+            return
+          }
+
+          if (index === 3) {
+            // ◀ 本文
+            log('返信確認: 本文に戻る')
+            notifState.screen = 'reply-confirm'
+            await showReplyConfirmTextPage()
             updateNotifInfo()
             return
           }
@@ -1492,7 +1692,7 @@ document.getElementById('notif-show-g2-btn')!.addEventListener('click', async ()
   notifState.screen = 'list'
   notifState.selectedIndex = 0
   await glassesUI.showNotificationList(connection, notifState.items)
-  startNotificationPolling()
+  connectNotificationSSE()
   updateNotifInfo()
 })
 
