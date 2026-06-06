@@ -13,7 +13,7 @@ function readInt(value: string | undefined, fallback: number): number {
 export const appConfig = {
   sttEnabled: readBool(import.meta.env.VITE_STT_ENABLED, true),
   sttForceError: readBool(import.meta.env.VITE_STT_FORCE_ERROR, false),
-  sttProvider: ((import.meta.env.VITE_STT_PROVIDER as string)?.trim() || 'groq') as 'groq' | 'openai-realtime',
+  sttProvider: ((import.meta.env.VITE_STT_PROVIDER as string)?.trim() || 'groq') as 'groq' | 'openai-realtime' | 'soniox',
   groqModel: (import.meta.env.VITE_GROQ_MODEL as string | undefined)?.trim() || 'whisper-large-v3',
   hubAuthToken: (import.meta.env.VITE_HUB_TOKEN as string | undefined)?.trim() ?? '',
   notificationHubUrl: (import.meta.env.VITE_HUB_URL as string | undefined)?.trim() || `http://${globalThis.location?.hostname || '127.0.0.1'}:8787`,
@@ -32,6 +32,10 @@ export function canUseGroqStt() {
 
 export function canUseOpenaiRealtimeStt() {
   return appConfig.sttEnabled && appConfig.sttProvider === 'openai-realtime'
+}
+
+export function canUseSonioxStt() {
+  return appConfig.sttEnabled && appConfig.sttProvider === 'soniox'
 }
 
 export function createHubHeaders(extra?: HeadersInit): HeadersInit {

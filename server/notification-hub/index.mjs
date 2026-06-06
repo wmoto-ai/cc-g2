@@ -37,6 +37,7 @@ const hubPersistToolInput = parseBoolEnv('HUB_PERSIST_TOOL_INPUT')
 const groqApiKey = String(process.env.GROQ_API_KEY || '').trim()
 const groqModelDefault = String(process.env.GROQ_MODEL || 'whisper-large-v3').trim()
 const openaiApiKey = String(process.env.OPENAI_API_KEY || '').trim()
+const sonioxApiKey = String(process.env.SONIOX_API_KEY || '').trim()
 const notificationsFile = path.join(dataDir, 'notifications.jsonl')
 const repliesFile = path.join(dataDir, 'replies.jsonl')
 const clientEventsFile = path.join(dataDir, 'client-events.jsonl')
@@ -1044,6 +1045,50 @@ const server = createServer(async (req, res) => {
       const msg = err instanceof Error ? err.message : String(err)
       log(`OpenAI realtime session fetch error: ${msg}`)
       return sendJson(res, 502, { ok: false, error: `OpenAI API request failed: ${msg}` })
+    }
+  }
+
+  if (method === 'POST' && pathname === '/api/stt/soniox-token') {
+    if (!sonioxApiKey) {
+      return sendJson(res, 400, { ok: false, error: 'SONIOX_API_KEY not configured' })
+    }
+    try {
+      const tokenRes = await fetch('https://api.soniox.com/v1/auth/temporary-api-key', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sonioxApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          usage_type: 'transcribe_websocket',
+          expires_in_seconds: 120,
+          single_use: true,
+          max_session_duration_seconds: 300,
+        }),
+      })
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text().catch(() => '')
+        log(`Soniox temporary API key error: HTTP ${tokenRes.status} ${errText.slice(0, 300)}`)
+        return sendJson(res, 502, {
+          ok: false,
+          error: `Soniox API error: HTTP ${tokenRes.status}`,
+        })
+      }
+      const tokenData = await tokenRes.json()
+      const token = tokenData?.api_key
+      if (!token) {
+        log(`Soniox temporary API key: unexpected response: ${JSON.stringify(tokenData).slice(0, 200)}`)
+        return sendJson(res, 502, {
+          ok: false,
+          error: 'Soniox API returned unexpected response (missing api_key)',
+        })
+      }
+      log('Soniox temporary API key issued')
+      return sendJson(res, 200, { ok: true, token, expiresAt: tokenData.expires_at })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log(`Soniox temporary API key fetch error: ${msg}`)
+      return sendJson(res, 502, { ok: false, error: `Soniox API request failed: ${msg}` })
     }
   }
 
