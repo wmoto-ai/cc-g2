@@ -254,6 +254,24 @@ describe('Notification Hub — Approval Broker API', () => {
     expect(approvalData.approval.comment).toBe('LGTM')
   })
 
+  it('G2 voice comment on approval always resolves as deny+comment', async () => {
+    const created = await createTestApproval({ toolName: 'CommentDeny' })
+
+    const { status, data } = await postJson(
+      hubBase,
+      `/api/notifications/${created.notificationId}/reply`,
+      { action: 'comment', comment: '書かなくていいよ', source: 'g2' },
+    )
+    expect(status).toBe(200)
+    expect(data.reply.resolvedAction).toBe('deny')
+    expect(data.reply.result).toBe('resolved')
+
+    const { data: approvalData } = await getJson(hubBase, `/api/approvals/${created.approvalId}`)
+    expect(approvalData.approval.status).toBe('decided')
+    expect(approvalData.approval.decision).toBe('deny')
+    expect(approvalData.approval.comment).toBe('書かなくていいよ')
+  })
+
   it('POST /api/notifications/:id/reply — rejects unauthenticated requests when token is enabled', async () => {
     const created = await createTestApproval({ toolName: 'ReplyAuth' })
     const res = await fetch(`${hubBase}/api/notifications/${created.notificationId}/reply`, {

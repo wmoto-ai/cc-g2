@@ -1232,43 +1232,18 @@ const server = createServer(async (req, res) => {
           log(`ask-user-question answered id=${linkedApproval.id} answers=${JSON.stringify(answerData)}`)
           shouldRelay = false
         }
-        // Resolve approval: explicit approve/deny actions, or parse comment text
-        let resolvedAction = null
+        // Resolve approval: approve/deny ボタンはそのまま、comment は常に deny+comment
         if (action === 'answer') {
           // already handled above
         } else if (action === 'approve' || action === 'deny') {
-          resolvedAction = action
-        } else if (action === 'comment' || !action) {
-          // G2 sends comments (not explicit approve/deny buttons).
-          // Parse comment text for intent keywords. If no keyword matches,
-          // do NOT resolve the approval — let the comment be relayed as plain text
-          // to the Claude Code input. Explicit approve/deny buttons should be used
-          // for approval decisions.
-          const text = (comment || replyText || '').toLowerCase().trim()
-          const denyPatterns = ['拒否', 'deny', 'no', 'reject', 'だめ', 'ダメ', 'いいえ']
-          const approvePatterns = ['承認', 'approve', 'yes', 'ok', 'おk', 'いいよ', 'はい', '許可']
-          if (denyPatterns.some((p) => text.includes(p))) {
-            resolvedAction = 'deny'
-          } else if (approvePatterns.some((p) => text.includes(p))) {
-            resolvedAction = 'approve'
-          }
-          // else: no keyword match → resolvedAction stays null → approval not resolved
-          // comment is still relayed to tmux as plain text input
-        }
-        if (resolvedAction) {
-          record.resolvedAction = resolvedAction
+          record.resolvedAction = action
           record.result = 'resolved'
-          resolveApproval(linkedApproval.id, resolvedAction, comment, source || 'g2')
+          resolveApproval(linkedApproval.id, action, comment, source || 'g2')
           log(
-            `approval-broker resolved id=${linkedApproval.id} action=${resolvedAction} (original=${action || 'none'} text=${(comment || replyText || '').slice(0, 50)})`,
+            `approval-broker resolved id=${linkedApproval.id} action=${action} text=${(comment || replyText || '').slice(0, 50)}`,
           )
-          // HTTP hook が承認を解決済みなので tmux relay は不要。
-          // relay すると承認ダイアログ消失後に y/n キーが入力欄に漏れる。
           shouldRelay = false
-        } else if (action === 'comment') {
-          // Comment without keyword match on an approval notification:
-          // HTTP hook 経由の場合は deny + comment として approval を解決し、
-          // HTTP レスポンスで Claude Code に返す。tmux relay は不要。
+        } else if (action === 'comment' || !action) {
           const commentText = comment || replyText || ''
           record.resolvedAction = 'deny'
           record.result = 'resolved'
