@@ -17,12 +17,9 @@ Even G2 で通知を開き、音声で返答し、その内容を Claude Code �
 - **通知一覧 / 詳細表示**: G2 で最近の通知を確認
 - **音声でセッション起動**: G2 に話しかけて Claude Code / Codex CLI セッションを起動（Even App カスタム AI 連携）
 
-## 現在の制限
+## 既知の制限
 
-- **AskUserQuestion 対応は G2 向けの簡易 UI です**: 質問と選択肢を G2 に表示し、複数質問も順番に回答できます。**その他（音声）** から自由入力の回答も送れます。ただし、長い質問文や選択肢が多い場合は G2 の表示制限により PC 側での確認が必要になることがあります。
-- **通知は主に完了通知と承認関連を想定**: README では、現時点で確認しやすいフローを中心に案内しています。
-- **実機のリスト操作には既知挙動があります**: 一部のリスト画面では、実機でスクロール方向が物理感覚と逆に見えることがあります。詳細は [docs/known-limitations.md](docs/known-limitations.md) を参照してください。
-- **シミュレーターと実機は挙動が異なります**: 最終確認は実機を優先してください。
+G2 表示制限、リスト操作の挙動、シミュレーターと実機の差異については [docs/known-limitations.md](docs/known-limitations.md) を参照してください。
 
 ## 構成
 
@@ -99,7 +96,8 @@ git clone から入れた場合は、clone したリポジトリのディレク�
 |------|------|
 | `GROQ_API_KEY` | G2 音声コメント用 STT（Groq、オプション） |
 | `OPENAI_API_KEY` | OpenAI Realtime Whisper 用（オプション） |
-| `VITE_STT_PROVIDER` | STT エンジン: `groq`（デフォルト、REST バッチ）または `openai-realtime`（WebSocket ストリーミング） |
+| `SONIOX_API_KEY` | Soniox リアルタイム STT 用（オプション） |
+| `VITE_STT_PROVIDER` | STT エンジン: `groq`（デフォルト、REST バッチ）、`openai-realtime`、または `soniox`（WebSocket ストリーミング） |
 | `CC_G2_VOICE_ENTRY_ENABLED=0` | Voice Entry を無効化（デフォルト: 有効） |
 
 `.env.local` を変えたら `cc-g2 !` でインフラを再起動します。tmux セッション外からは `cc-g2 stop && cc-g2` で再起動してください。

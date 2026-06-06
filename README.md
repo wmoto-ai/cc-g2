@@ -17,12 +17,9 @@ Even G2 can open notifications, record a voice reply, and send that response bac
 - Browse recent notifications and details on the glasses
 - Launch Claude Code / Codex CLI sessions by voice via Even App custom AI
 
-## Current limitations
+## Known limitations
 
-- **AskUserQuestion support is intentionally compact**. G2 can show question options and send selected answers, including multiple questions in sequence. The **Other (voice)** path sends a spoken free-form answer. Long question text or many options may still need the PC side because of the G2 display limits.
-- **This README focuses on completion notifications and permission-related interactions**, which are the flows currently easiest to verify.
-- **Real hardware has known list input quirks**. In some list screens, swipe direction can feel inverted on the device. See [docs/known-limitations.md](docs/known-limitations.md).
-- **Simulator behavior differs from real hardware**. Always verify important behavior on the actual glasses.
+See [docs/known-limitations.md](docs/known-limitations.md) for details on G2 display constraints, list input quirks, and simulator vs real hardware differences.
 
 ## Architecture
 
@@ -94,7 +91,8 @@ Key settings in `.env.local`:
 |----------|---------|
 | `GROQ_API_KEY` | STT for voice comments (Groq, optional) |
 | `OPENAI_API_KEY` | OpenAI Realtime Whisper STT (optional) |
-| `VITE_STT_PROVIDER` | STT engine: `groq` (default, REST batch) or `openai-realtime` (WebSocket streaming) |
+| `SONIOX_API_KEY` | Soniox Realtime STT (optional) |
+| `VITE_STT_PROVIDER` | STT engine: `groq` (default, REST batch), `openai-realtime`, or `soniox` (WebSocket streaming) |
 | `CC_G2_VOICE_ENTRY_ENABLED=0` | Disable Voice Entry (enabled by default) |
 | `CC_G2_REPO_ROOTS` | Repository scan path (default: `~/Repos`) |
 

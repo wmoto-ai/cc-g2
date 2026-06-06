@@ -125,6 +125,10 @@ resolve_openai_api_key() {
   resolve_env_var "OPENAI_API_KEY" "OPENAI_API_KEY" "$G2_PROJECT_DIR"
 }
 
+resolve_soniox_api_key() {
+  resolve_env_var "SONIOX_API_KEY" "SONIOX_API_KEY" "$G2_PROJECT_DIR"
+}
+
 resolve_statusline_flag() {
   resolve_env_var "CC_G2_ENABLE_STATUSLINE" "CC_G2_ENABLE_STATUSLINE" "$G2_PROJECT_DIR"
 }
@@ -193,6 +197,7 @@ resolve_repo_roots() {
 
 GROQ_API_KEY_RESOLVED="$(resolve_groq_api_key)"
 OPENAI_API_KEY_RESOLVED="$(resolve_openai_api_key)"
+SONIOX_API_KEY_RESOLVED="$(resolve_soniox_api_key)"
 ENABLE_STATUSLINE="$(resolve_statusline_flag)"
 VOICE_ENTRY_ENABLED="$(resolve_voice_entry_enabled)"
 VOICE_ENTRY_REPO_ROOTS="$(resolve_repo_roots)"
@@ -578,6 +583,7 @@ ensure_infra() {
       HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" \
       GROQ_API_KEY="$GROQ_API_KEY_RESOLVED" \
       OPENAI_API_KEY="$OPENAI_API_KEY_RESOLVED" \
+      SONIOX_API_KEY="$SONIOX_API_KEY_RESOLVED" \
       HUB_ALLOWED_ORIGINS="$allowed_origins" \
       HUB_REPLY_RELAY_CMD='bash server/notification-hub/reply-relay.sh' \
       RELAY_ENABLE_TMUX=1 \

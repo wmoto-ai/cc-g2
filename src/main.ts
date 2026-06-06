@@ -5,8 +5,9 @@ import { createGlassesUI, type NotificationUIState, type AskQuestionData } from 
 import { log } from './log'
 import { transcribePcmChunks } from './stt/groq'
 import { formatForG2ScrollableText } from './g2-format'
-import { appConfig, canUseGroqStt, canUseOpenaiRealtimeStt, createHubHeaders } from './config'
+import { appConfig, canUseGroqStt, canUseOpenaiRealtimeStt, canUseSonioxStt, createHubHeaders } from './config'
 import { OpenAIRealtimeSTT } from './stt/openai-realtime'
+import { SonioxRealtimeSTT } from './stt/soniox-realtime'
 import { getWebSpeechSupport, startWebSpeechCapture, type WebSpeechSession } from './stt/webspeech'
 import { createNotificationClient, type NotificationDetail, type NotificationItem } from './notifications'
 import { G2_EVENT, getNormalizedEventType, isDoubleTapEventType, isTapEventType, normalizeHubEvent } from './even-events'
@@ -118,7 +119,7 @@ let replyAudioChunks: Uint8Array[] = []
 let replyAudioTotalBytes = 0
 let replyIsRecording = false
 let replyStopInFlight = false
-let realtimeSTT: OpenAIRealtimeSTT | null = null
+let realtimeSTT: OpenAIRealtimeSTT | SonioxRealtimeSTT | null = null
 let lastIdleEventAt = 0
 let idleTapDuringRender = false
 let idleOpenBlockedUntil = 0
@@ -319,7 +320,7 @@ document.getElementById('connect-btn')!.addEventListener('click', async () => {
 
     if (!speechCapabilityLogged) {
       log(
-        `STT設定: enabled=${appConfig.sttEnabled ? 'yes' : 'no'}, forceError=${appConfig.sttForceError ? 'yes' : 'no'}, provider=${appConfig.sttProvider}, mode=${canUseOpenaiRealtimeStt() ? 'realtime' : canUseGroqStt() ? 'hub' : 'mock'}`,
+        `STT設定: enabled=${appConfig.sttEnabled ? 'yes' : 'no'}, forceError=${appConfig.sttForceError ? 'yes' : 'no'}, provider=${appConfig.sttProvider}, mode=${canUseOpenaiRealtimeStt() || canUseSonioxStt() ? 'realtime' : canUseGroqStt() ? 'hub' : 'mock'}`,
       )
       if (appConfig.webSpeechCompare) {
         const cap = getWebSpeechSupport()
@@ -457,18 +458,20 @@ document.getElementById('mic-start-btn')!.addEventListener('click', async () => 
   }
 
   // Start realtime STT if configured
-  if (canUseOpenaiRealtimeStt()) {
+  if (canUseOpenaiRealtimeStt() || canUseSonioxStt()) {
     try {
-      realtimeSTT = new OpenAIRealtimeSTT(appConfig.notificationHubUrl, createHubHeaders())
+      realtimeSTT = canUseSonioxStt()
+        ? new SonioxRealtimeSTT(appConfig.notificationHubUrl, createHubHeaders())
+        : new OpenAIRealtimeSTT(appConfig.notificationHubUrl, createHubHeaders())
       await realtimeSTT.start((text, isFinal) => {
         const audioInfo = document.getElementById('audio-info')!
         const prefix = isFinal ? '[final]' : '[partial]'
         audioInfo.textContent = `${prefix} ${text}`
       })
-      log('OpenAI Realtime STT開始')
+      log(`${appConfig.sttProvider} Realtime STT開始`)
     } catch (err) {
       realtimeSTT = null
-      log(`OpenAI Realtime STT開始失敗: ${errorMessage(err)}`)
+      log(`Realtime STT開始失敗: ${errorMessage(err)}`)
       micStatus.textContent = `Realtime STT開始失敗: ${errorMessage(err)}`
       startBtn.disabled = false
       stopBtn.disabled = true
@@ -940,11 +943,13 @@ async function startReplyRecording(): Promise<void> {
   replyStopInFlight = false
 
   // Start realtime STT if configured
-  if (canUseOpenaiRealtimeStt()) {
+  if (canUseOpenaiRealtimeStt() || canUseSonioxStt()) {
     let realtimeCompleted = ''
     let realtimeDelta = ''
     try {
-      realtimeSTT = new OpenAIRealtimeSTT(appConfig.notificationHubUrl, createHubHeaders())
+      realtimeSTT = canUseSonioxStt()
+        ? new SonioxRealtimeSTT(appConfig.notificationHubUrl, createHubHeaders())
+        : new OpenAIRealtimeSTT(appConfig.notificationHubUrl, createHubHeaders())
       await realtimeSTT.start((text, isFinal) => {
         if (isFinal) {
           realtimeCompleted += text
@@ -957,11 +962,10 @@ async function startReplyRecording(): Promise<void> {
           glassesUI.updateReplyRecordingBody(connection, display)
         }
       })
-      log('返信録音: OpenAI Realtime STT開始')
+      log(`返信録音: ${appConfig.sttProvider} Realtime STT開始`)
     } catch (err) {
       realtimeSTT = null
       log(`返信録音: Realtime STT開始失敗: ${errorMessage(err)}`)
-      // Fall through - recording will still work but STT will fail at stop
     }
   }
 
