@@ -1,4 +1,7 @@
 minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - esbuild
+  - '@esbuild/*'
 
 packages:
   - .
