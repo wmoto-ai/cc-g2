@@ -282,3 +282,13 @@ input[type="text"] {
     grid-template-columns: 1fr;
   }
 }
+
+/* G2 Mirror (?mirror=1) */
+.mirror-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  border-radius: 12px;
+  background: #000;
+  border: 1px solid #293129;
+}

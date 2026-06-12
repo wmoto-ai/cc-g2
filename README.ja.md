@@ -15,6 +15,7 @@ Even G2 で通知を開き、音声で返答し、その内容を Claude Code �
 - **音声コメント**: 拒否時に音声で指示を返す
 - **完了通知の確認**: Claude Code / Codex CLI の完了通知を G2 で確認
 - **通知一覧 / 詳細表示**: G2 で最近の通知を確認
+- **画像表示**: Claude Code / Codex CLI から送った画像・スクリーンショットを G2 のレンズに表示（`scripts/g2-send-image.sh`、使い方プロンプトは起動時に両 CLI へ自動注入）
 - **音声でセッション起動**: G2 に話しかけて Claude Code / Codex CLI セッションを起動（Even App カスタム AI 連携）
 
 ## 既知の制限
@@ -292,6 +293,40 @@ cc-g2 status
 - `?dev=1` を付けると Developer Tools / Event Log を表示できます
 - 必要なら `SIMULATOR_VERSION=...` で simulator version を切り替えられます
 
+## G2 画面ミラー / カメラ重畳ビューア
+
+![G2 ミラー カメラ重畳](./docs/screenshots/g2-mirror-camera-overlay.gif)
+
+G2 に表示中の画面を 576x288 の canvas で近似再現できます（デフォルト無効・opt-in）。
+
+### ページ内ミラー
+
+Even App で開く URL に `?mirror=1` を付けると、コンソールに「G2 Mirror」カードが出ます。
+
+### 別端末から見る（ビューア配信）
+
+1. Even App 側の URL に `?mirrorpub=1` を付ける（または Vite を `VITE_MIRROR_PUBLISH=1` で起動）
+2. 同じ LAN / tailnet の端末で `http://<PCのIP>:5173/mirror.html` を開く
+
+ビューアは同一 origin の `/api`（Vite dev proxy → Hub）だけを使うため、Hub のポートを意識する必要はありません。
+
+### カメラ重畳（SNS 共有用スクショ）
+
+カメラ（getUserMedia）は HTTPS が必要なため、tailscale serve でビューアを HTTPS 化します。
+
+```bash
+tailscale serve --bg --https=443 http://127.0.0.1:5173
+# → https://<machine>.<tailnet>.ts.net/mirror.html を iPhone Safari で開く
+```
+
+「カメラ開始」でカメラ映像の上にミラーが `mix-blend-mode: screen` で重なります
+（黒が透過し、G2 の緑の表示だけが乗る）。「合成して保存」で 1 枚の PNG として保存できます。
+
+注意:
+
+- ミラーは近似です（実機フォント・リスト選択ハイライト・ファームウェアのスクロールは再現しません）
+- 画像転送中はミラーの描画/送信を自動で繰り延べます（実機 Even App の安定性対策）
+
 ## 開発
 
 ```bash
@@ -315,9 +350,20 @@ pnpm test:watch
 ```text
 cc-g2/
 ├── src/                      # G2 Web UI (TypeScript + Vite)
-├── server/notification-hub/  # Notification Hub
+│   ├── main.ts               #   エントリ（DOM 構築・dashboard・配線）
+│   ├── glasses-ui.ts         #   G2 画面 API のファサード
+│   ├── app/                  #   アプリ状態 (AppContext)・接続・整形
+│   ├── hub/                  #   Hub との SSE 通信
+│   ├── g2/                   #   G2 描画基盤 (render-core ※凍結)・テキスト整形・イベント処理
+│   │   └── screens/          #   画面別モジュール（通知 / 質問 / 返信 / 画像）
+│   ├── mirror/               #   G2 画面ミラー（bridge タップ・canvas 描画・Hub 配信・ビューア）
+│   ├── stt/                  #   音声認識 (Groq / OpenAI / Soniox / WebSpeech)
+│   ├── image/                #   画像タイル変換パイプライン
+│   └── audio/                #   WAV エンコード
+├── server/notification-hub/  # Notification Hub（index.mjs + 機能別モジュール）
 ├── server/voice-entry/       # Voice Entry サーバー
 ├── scripts/                  # 起動 / hook / simulator 用スクリプト
+│   └── lib/                  #   cc-g2.sh の分割ライブラリ（tokens / infra / tmux / agent-launch / doctor）
 ├── test/                     # テスト
 ├── .claude/settings.json     # この repo 作業用の設定
 └── .env.example              # 環境変数テンプレート
@@ -332,6 +378,12 @@ cc-g2/
 - **Voice entry が起動しない**: `cc-g2 status` で確認。`.env.local` に `CC_G2_VOICE_ENTRY_ENABLED=0` が設定されていないか確認し、`cc-g2 !` で再起動
 - **Even App から接続できない**: `cat tmp/voice-entry/voice-entry-token` でトークンを確認。Even App の Bearer トークンと一致しているか、Tailscale で iPhone → Mac に到達できるかも確認
 - **設定変更が反映されない**: `cc-g2 !` でインフラを再起動。tmux セッション外からは `cc-g2 stop && cc-g2`
+- **Hub の履歴ファイルが肥大化した**: `tmp/notification-hub/*.jsonl` は無期限に追記されます。`cc-g2 stop` してから `node scripts/prune-hub-history.mjs --dry-run` で削減量を確認し、`node scripts/prune-hub-history.mjs`（デフォルト14日保持、実行前に自動バックアップ）で間引けます
+
+## Acknowledgments
+
+- [Visionote](https://github.com/takashicompany/visionote) — Even Hub SDK を使った G2 への画像表示。画像パイプラインの実装で参考にした
+- [EvenAI Anthropic Bridge](https://github.com/jase-perf/evenai-anthropic-bridge) — G2 向け Claude API ブリッジ。Voice Entry（カスタム AI エージェント）の実装で参考にした
 
 ## 既知の制限 / 参考リンク
 

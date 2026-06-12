@@ -16,6 +16,7 @@
     "app.json",
     "docs/screenshots/",
     "index.html",
+    "mirror.html",
     "scripts/",
     "server/",
     "src/",
@@ -33,13 +34,13 @@
     "voice-entry:dev": "node server/voice-entry/index.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run test/even-events.test.ts test/format-and-wav.test.ts test/paginate-text.test.ts test/hub-approval-api.test.mjs test/hub-hook-endpoint.test.mjs test/hub-codex-hook.test.mjs test/hub-location-api.test.mjs test/voice-entry.test.mjs",
+    "test": "vitest run test/even-events.test.ts test/format-and-wav.test.ts test/paginate-text.test.ts test/glasses-ui-call-sequence.test.ts test/mirror-state.test.ts test/derive-session-label-cross.test.ts test/scripts-lib-pure.test.mjs test/grayscale-png.test.ts test/hub-approval-api.test.mjs test/hub-hook-endpoint.test.mjs test/hub-codex-hook.test.mjs test/hub-image-api.test.mjs test/hub-g2-display.test.mjs test/hub-location-api.test.mjs test/voice-entry.test.mjs",
     "test:all": "vitest run",
     "test:watch": "vitest",
     "release": "npm version patch && pnpm publish && git push --follow-tags && gh release create \"v$(node -p \"require('./package.json').version\")\" --generate-notes"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.7",
+    "@evenrealities/even_hub_sdk": "^0.0.9",
     "vite": "^7.3.2"
   },
   "devDependencies": {

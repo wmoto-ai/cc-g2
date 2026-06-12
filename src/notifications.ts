@@ -80,17 +80,14 @@ export function createNotificationClient(baseUrl: string) {
 
     async reply(
       id: string,
-      reply: string | NotificationReplyRequest,
+      reply: NotificationReplyRequest,
     ): Promise<NotificationReplyResponse> {
-      const body =
-        typeof reply === 'string'
-          ? { replyText: reply }
-          : {
-              action: reply.action,
-              comment: reply.comment,
-              source: reply.source,
-              answerData: reply.answerData,
-            }
+      const body = {
+        action: reply.action,
+        comment: reply.comment,
+        source: reply.source,
+        answerData: reply.answerData,
+      }
       return fetchJson<NotificationReplyResponse>(
         `/api/notifications/${encodeURIComponent(id)}/reply`,
         {

@@ -60,6 +60,26 @@ export async function readRequestBody(req, options = {}) {
   return Buffer.concat(chunks).toString('utf8')
 }
 
+/** readRequestBody の binary-safe 版（utf8 変換せず Buffer のまま返す） */
+export async function readRequestBodyBinary(req, options = {}) {
+  const maxBytesRaw = Number(options.maxBytes)
+  const maxBytes = Number.isFinite(maxBytesRaw) && maxBytesRaw > 0 ? Math.floor(maxBytesRaw) : 0
+  const chunks = []
+  let totalBytes = 0
+  for await (const chunk of req) {
+    totalBytes += chunk.length
+    if (maxBytes > 0 && totalBytes > maxBytes) {
+      const err = new Error(`Request body too large (max ${maxBytes} bytes)`)
+      err.code = 'BODY_TOO_LARGE'
+      err.statusCode = 413
+      err.maxBytes = maxBytes
+      throw err
+    }
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
+}
+
 export function safeJsonParse(raw) {
   try {
     return { ok: true, value: JSON.parse(raw) }
@@ -72,6 +92,9 @@ export function getString(val, defaultVal = '') {
   return typeof val === 'string' ? val.trim() : defaultVal
 }
 
+// 注意: src/g2/text-format.ts に同一ロジックのクライアント側実装がある
+// （ビルド境界が異なるため統合不可）。変更時は両方を揃えること。
+// 同一性は test/derive-session-label-cross.test.ts が監視している。
 export function deriveSessionLabel(tmuxTarget) {
   const target = getString(tmuxTarget)
   if (!target) return ''

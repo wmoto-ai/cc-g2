@@ -1,0 +1,1019 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildNotificationActions > hookType + imageId は「画像を見る」付きフルメニュー 1`] = `
+[
+  {
+    "id": "comment",
+    "label": "コメント",
+  },
+  {
+    "id": "approve",
+    "label": "Approve",
+  },
+  {
+    "id": "deny",
+    "label": "Deny",
+  },
+  {
+    "id": "view-image",
+    "label": "画像を見る",
+  },
+  {
+    "id": "back",
+    "label": "◀ 戻る",
+  },
+]
+`;
+
+exports[`buildNotificationActions > hookType あり（承認系）はフルメニュー 1`] = `
+[
+  {
+    "id": "comment",
+    "label": "コメント",
+  },
+  {
+    "id": "approve",
+    "label": "Approve",
+  },
+  {
+    "id": "deny",
+    "label": "Deny",
+  },
+  {
+    "id": "back",
+    "label": "◀ 戻る",
+  },
+]
+`;
+
+exports[`buildNotificationActions > metadata なしはフルメニュー（画像なし） 1`] = `
+[
+  {
+    "id": "comment",
+    "label": "コメント",
+  },
+  {
+    "id": "approve",
+    "label": "Approve",
+  },
+  {
+    "id": "deny",
+    "label": "Deny",
+  },
+  {
+    "id": "back",
+    "label": "◀ 戻る",
+  },
+]
+`;
+
+exports[`buildNotificationActions > 画像専用通知（hookType なし + imageId）は最小メニュー 1`] = `
+[
+  {
+    "id": "view-image",
+    "label": "画像を見る",
+  },
+  {
+    "id": "back",
+    "label": "◀ 戻る",
+  },
+]
+`;
+
+exports[`requestApproval > リスト選択イベントで選択肢ラベルを resolve する 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [
+        {
+          "containerID": 2,
+          "containerName": "approval-list",
+          "height": 120,
+          "isEventCapture": 1,
+          "itemContainer": {
+            "isItemSelectBorderEn": 1,
+            "itemCount": 2,
+            "itemName": [
+              "許可",
+              "拒否",
+            ],
+            "itemWidth": 0,
+          },
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 64,
+        },
+      ],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "approval-title",
+          "content": "pnpm test
+テストを実行します",
+          "height": 48,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 10,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`showAskUserQuestion > リスト上限の強制適合: 21 個以上の選択肢は 20 件に、長い項目は byte cap に切り詰める 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [
+        {
+          "containerID": 2,
+          "containerName": "ask-q-lst",
+          "height": 210,
+          "isEventCapture": 1,
+          "itemContainer": {
+            "isItemSelectBorderEn": 1,
+            "itemCount": 20,
+            "itemName": [
+              "選択肢1 とても長い日本…",
+              "選択肢2 とても長い日本…",
+              "選択肢3 とても長い日本…",
+              "選択肢4 とても長い日本…",
+              "選択肢5 とても長い日本…",
+              "選択肢6 とても長い日本…",
+              "選択肢7 とても長い日本…",
+              "選択肢8 とても長い日本…",
+              "選択肢9 とても長い日本…",
+              "選択肢10 とても長い日本…",
+              "選択肢11 とても長い日本…",
+              "選択肢12 とても長い日本…",
+              "選択肢13 とても長い日本…",
+              "選択肢14 とても長い日本…",
+              "選択肢15 とても長い日本…",
+              "選択肢16 とても長い日本…",
+              "選択肢17 とても長い日本…",
+              "選択肢18 とても長い日本…",
+              "選択肢19 とても長い日本…",
+              "選択肢20 とても長い日本…",
+            ],
+            "itemWidth": 0,
+          },
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 58,
+        },
+      ],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "ask-q-hdr",
+          "content": "[2/3] どれにしますか？",
+          "height": 52,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`showAskUserQuestion > 短い質問は質問+選択肢+固定項目のリスト 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [
+        {
+          "containerID": 2,
+          "containerName": "ask-q-lst",
+          "height": 210,
+          "isEventCapture": 1,
+          "itemContainer": {
+            "isItemSelectBorderEn": 1,
+            "itemCount": 4,
+            "itemName": [
+              "はい",
+              "いいえ",
+              "その他（音声）",
+              "◀ 戻る",
+            ],
+            "itemWidth": 0,
+          },
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 58,
+        },
+      ],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "ask-q-hdr",
+          "content": "マージしてよいですか？",
+          "height": 52,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`showAskUserQuestion > 長い質問ヘッダーは 999 バイト予算に切り詰められる 1`] = `
+[
+  "createStartUpPageContainer",
+]
+`;
+
+exports[`showIdleLauncher > 通常モードと dim モードの payload 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 1,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "idle-touch",
+          "content": "待機中
+
+DblTap = 通知一覧",
+          "height": 272,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+      ],
+    },
+  },
+  {
+    "method": "rebuildPageContainer",
+    "payload": {
+      "containerTotalNum": 1,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "idle-touch",
+          "content": " ",
+          "height": 272,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`showImage > タイル送信タイムアウト時は残りタイルをスキップし失敗メッセージを出す 1`] = `
+[
+  "rebuildPageContainer",
+  "updateImageRawData",
+  "textContainerUpgrade",
+]
+`;
+
+exports[`showImage > レイアウト構築 → settle → タイル直列転送 → インジケータ消去の順を固定する 1`] = `
+[
+  {
+    "method": "rebuildPageContainer",
+    "payload": {
+      "containerTotalNum": 5,
+      "imageObject": [
+        {
+          "containerID": 2,
+          "containerName": "img-dtl-0",
+          "height": 144,
+          "width": 288,
+          "xPosition": 0,
+          "yPosition": 0,
+        },
+        {
+          "containerID": 3,
+          "containerName": "img-dtl-1",
+          "height": 144,
+          "width": 288,
+          "xPosition": 288,
+          "yPosition": 0,
+        },
+        {
+          "containerID": 4,
+          "containerName": "img-dtl-2",
+          "height": 144,
+          "width": 288,
+          "xPosition": 0,
+          "yPosition": 144,
+        },
+        {
+          "containerID": 5,
+          "containerName": "img-dtl-3",
+          "height": 144,
+          "width": 288,
+          "xPosition": 288,
+          "yPosition": 144,
+        },
+      ],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "img-dtl-evt",
+          "content": "
+
+
+
+　　　　　　　　画像を転送中...
+　　　　　　　　(完了まで操作しないでください)",
+          "height": 288,
+          "isEventCapture": 1,
+          "paddingLength": 0,
+          "width": 576,
+          "xPosition": 0,
+          "yPosition": 0,
+        },
+      ],
+    },
+  },
+  {
+    "method": "updateImageRawData",
+    "payload": {
+      "containerID": 2,
+      "containerName": "img-dtl-0",
+      "imageDataLength": 100,
+    },
+  },
+  {
+    "method": "updateImageRawData",
+    "payload": {
+      "containerID": 3,
+      "containerName": "img-dtl-1",
+      "imageDataLength": 101,
+    },
+  },
+  {
+    "method": "updateImageRawData",
+    "payload": {
+      "containerID": 4,
+      "containerName": "img-dtl-2",
+      "imageDataLength": 102,
+    },
+  },
+  {
+    "method": "updateImageRawData",
+    "payload": {
+      "containerID": 5,
+      "containerName": "img-dtl-3",
+      "imageDataLength": 103,
+    },
+  },
+  {
+    "method": "textContainerUpgrade",
+    "payload": {
+      "containerID": 1,
+      "containerName": "img-dtl-evt",
+      "content": " ",
+      "contentLength": 1,
+      "contentOffset": 0,
+    },
+  },
+]
+`;
+
+exports[`showNotificationActions > 長いタイトルは 20 文字で切り詰められる 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [
+        {
+          "containerID": 2,
+          "containerName": "notif-act-lst",
+          "height": 210,
+          "isEventCapture": 1,
+          "itemContainer": {
+            "isItemSelectBorderEn": 1,
+            "itemCount": 5,
+            "itemName": [
+              "コメント",
+              "Approve",
+              "Deny",
+              "画像を見る",
+              "◀ 戻る",
+            ],
+            "itemWidth": 0,
+          },
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 58,
+        },
+      ],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "notif-act-hdr",
+          "content": "操作を選択
+とても長い通知タイトルでヘッダー切り詰…",
+          "height": 52,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`showNotificationDetail > notif-detail レイアウト中のページ送りは upgradeText 2 連で行う 1`] = `
+[
+  {
+    "method": "textContainerUpgrade",
+    "payload": {
+      "containerID": 1,
+      "containerName": "notif-dtl-hdr",
+      "content": "Bash [2/4] ctx:43%",
+      "contentLength": 18,
+      "contentOffset": 0,
+    },
+  },
+  {
+    "method": "textContainerUpgrade",
+    "payload": {
+      "containerID": 2,
+      "containerName": "notif-body",
+      "content": "あああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああ
+",
+      "contentLength": 68,
+      "contentOffset": 0,
+    },
+  },
+]
+`;
+
+exports[`showNotificationDetail > updateDetailHeaderBadge は notif-detail レイアウト時のみ動作する 1`] = `
+[
+  {
+    "method": "textContainerUpgrade",
+    "payload": {
+      "containerID": 1,
+      "containerName": "notif-dtl-hdr",
+      "content": "Bash ●新着1",
+      "contentLength": 9,
+      "contentOffset": 0,
+    },
+  },
+]
+`;
+
+exports[`showNotificationDetail > 初回は ghost list 付き 3 コンテナで描画する 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 3,
+      "imageObject": [],
+      "listObject": [
+        {
+          "containerID": 3,
+          "containerName": "notif-list",
+          "height": 18,
+          "isEventCapture": 0,
+          "itemContainer": {
+            "isItemSelectBorderEn": 0,
+            "itemCount": 1,
+            "itemName": [
+              " ",
+            ],
+            "itemWidth": 0,
+          },
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 250,
+        },
+      ],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "notif-dtl-hdr",
+          "content": "Bash",
+          "height": 28,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+        {
+          "containerID": 2,
+          "containerName": "notif-body",
+          "content": "pnpm test を実行してもよいですか？
+
+$ pnpm test --run
+対象: 103 tests",
+          "height": 210,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 34,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`showNotificationList > 0件は showText("通知なし") に委譲する 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 1,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "main-text",
+          "content": "通知なし",
+          "height": 260,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 10,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`showNotificationList > セッションアクティビティがヘッダーに反映される 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [
+        {
+          "containerID": 2,
+          "containerName": "notif-list",
+          "height": 232,
+          "isEventCapture": 1,
+          "itemContainer": {
+            "isItemSelectBorderEn": 1,
+            "itemCount": 1,
+            "itemName": [
+              "●cc-g2#2:Bash pnpm test --run (now)",
+            ],
+            "itemWidth": 0,
+          },
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 42,
+        },
+      ],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "notif-header",
+          "content": "▶cc-g2 ○minima !other Xdead 1件 6/10 Wed 12:00",
+          "height": 28,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 8,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`showNotificationList > 代表4種の通知で header/list payload を固定する 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [
+        {
+          "containerID": 2,
+          "containerName": "notif-list",
+          "height": 232,
+          "isEventCapture": 1,
+          "itemContainer": {
+            "isItemSelectBorderEn": 1,
+            "itemCount": 4,
+            "itemName": [
+              "●cc-g2#2:Bash pnpm test --run (now)",
+              "○very-long…#2:Edit glasses-ui.ts (5m)",
+              ">M:タスク完了通知のとても… (3h)",
+              "○Stop セッションが完了し… (2d)",
+            ],
+            "itemWidth": 0,
+          },
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 42,
+        },
+      ],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "notif-header",
+          "content": "通知 4件  6/10 Wed 12:00",
+          "height": 28,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 8,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`showText > text レイアウト時は textContainerUpgrade で更新する 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 1,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "main-text",
+          "content": "first",
+          "height": 260,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 10,
+        },
+      ],
+    },
+  },
+  {
+    "method": "textContainerUpgrade",
+    "payload": {
+      "containerID": 1,
+      "containerName": "main-text",
+      "content": "second (upgrade path)",
+      "contentLength": 21,
+      "contentOffset": 0,
+    },
+  },
+]
+`;
+
+exports[`初回描画と rebuild/フォールバックの遷移 > createStartUp が code=1 の間は rendered 扱いせず createStartUp を続ける 1`] = `
+[
+  "createStartUpPageContainer",
+  "createStartUpPageContainer",
+]
+`;
+
+exports[`初回描画と rebuild/フォールバックの遷移 > ensureBasePage は未描画時のみ描画する 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 1,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "boot-text",
+          "content": "Ready",
+          "height": 80,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 10,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`初回描画と rebuild/フォールバックの遷移 > rebuild 失敗時は必ず rebuild を呼んでから createStartUp にフォールバックする（順序が契約） 1`] = `
+[
+  {
+    "method": "rebuildPageContainer",
+    "payload": {
+      "containerTotalNum": 1,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "idle-touch",
+          "content": "待機中
+
+DblTap = 通知一覧",
+          "height": 272,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+      ],
+    },
+  },
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 1,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "idle-touch",
+          "content": "待機中
+
+DblTap = 通知一覧",
+          "height": 272,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`初回描画と rebuild/フォールバックの遷移 > 初回 showText は createStartUp、2回目以降の別レイアウトは rebuild 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 1,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "main-text",
+          "content": "hello",
+          "height": 260,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 10,
+        },
+      ],
+    },
+  },
+  {
+    "method": "rebuildPageContainer",
+    "payload": {
+      "containerTotalNum": 1,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "idle-touch",
+          "content": "待機中
+
+DblTap = 通知一覧",
+          "height": 272,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`返信フロー（録音 → STT → 確認 → 結果） > showReplySttProcessing はレイアウトが違えばフル描画する 1`] = `
+[
+  {
+    "method": "rebuildPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "reply-header",
+          "content": "音声返信",
+          "height": 28,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+        {
+          "containerID": 2,
+          "containerName": "reply-body",
+          "content": "STT処理中...",
+          "height": 240,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 36,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`返信フロー（録音 → STT → 確認 → 結果） > 代表フロー全体の呼び出し列と payload を固定する 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "reply-header",
+          "content": "音声返信",
+          "height": 28,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+        {
+          "containerID": 2,
+          "containerName": "reply-body",
+          "content": "録音中...
+
+DblClick = 停止
+Swipe = キャンセル",
+          "height": 240,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 36,
+        },
+      ],
+    },
+  },
+  {
+    "method": "textContainerUpgrade",
+    "payload": {
+      "containerID": 2,
+      "containerName": "reply-body",
+      "content": "認識中のテキスト…",
+      "contentLength": 9,
+      "contentOffset": 0,
+    },
+  },
+  {
+    "method": "textContainerUpgrade",
+    "payload": {
+      "containerID": 2,
+      "containerName": "reply-body",
+      "content": "STT処理中...",
+      "contentLength": 9,
+      "contentOffset": 0,
+    },
+  },
+  {
+    "method": "rebuildPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [
+        {
+          "containerID": 2,
+          "containerName": "rply-act-lst",
+          "height": 210,
+          "isEventCapture": 1,
+          "itemContainer": {
+            "isItemSelectBorderEn": 1,
+            "itemCount": 4,
+            "itemName": [
+              "送信",
+              "再録",
+              "キャンセル",
+              "◀ 本文",
+            ],
+            "itemWidth": 0,
+          },
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 58,
+        },
+      ],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "rply-act-hdr",
+          "content": "返信内容 OK?",
+          "height": 52,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+      ],
+    },
+  },
+  {
+    "method": "rebuildPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "rply-rst-hdr",
+          "content": "返信完了",
+          "height": 28,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+        {
+          "containerID": 2,
+          "containerName": "rply-rst-body",
+          "content": "送信完了
+送信しました",
+          "height": 240,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 36,
+        },
+      ],
+    },
+  },
+  {
+    "method": "rebuildPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "rply-rst-hdr",
+          "content": "返信失敗",
+          "height": 28,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 4,
+        },
+        {
+          "containerID": 2,
+          "containerName": "rply-rst-body",
+          "content": "送信失敗
+Hub error",
+          "height": 240,
+          "isEventCapture": 1,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 36,
+        },
+      ],
+    },
+  },
+]
+`;

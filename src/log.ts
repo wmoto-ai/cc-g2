@@ -23,10 +23,19 @@ export function log(message: string): void {
   // 待機/一覧の画面遷移・[event]系がPC側に届かず、原因追跡が不能だった。
   const baseUrl = appConfig.notificationHubUrl
   if (!baseUrl) return
-  const level = /失敗|エラー|error|code=[1-3]/.test(message) ? 'error' : 'info'
+  // vitest 実行時はミラーしない。テストのモック bridge が返す code=1 などが
+  // 実機ログ（client-events.jsonl）に混ざり、クラッシュ調査を誤誘導するため。
+  // （Node 21+ は navigator.userAgent が "Node.js/NN" を返すので実際に届いていた）
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+  if (proc?.env?.VITEST) return
+  // code=[1-3] は後ろに数字が続かない場合のみ（WebSocket正常クローズの code=1000 等を誤検知しない）
+  const level = /失敗|エラー|error|code=[1-3](?!\d)/.test(message) ? 'error' : 'info'
   // info系（画面遷移・[event]系など待機中に頻発するログ）は診断モード時のみミラーする。
   // error は常にミラーして異常追跡は維持しつつ、平常時の余計な送信を抑える。
-  if (level === 'info' && !appConfig.logMirror) return
+  // 例外: 画像表示フロー（G2画像/画像表示/image-detail中のイベント）は頻度が低く
+  // 実機診断に必須のため常にミラーする。
+  const isImageFlow = /G2画像|画像表示|screen=image-detail/.test(message)
+  if (level === 'info' && !appConfig.logMirror && !isImageFlow) return
   void fetch(`${baseUrl}/api/client-events`, {
     method: 'POST',
     headers: createHubHeaders({ 'Content-Type': 'application/json' }),

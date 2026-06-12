@@ -15,6 +15,7 @@ Even G2 can open notifications, record a voice reply, and send that response bac
 - Send voice comments back to Claude Code
 - Check Claude Code / Codex CLI completion notifications on G2
 - Browse recent notifications and details on the glasses
+- Display images / screenshots sent from Claude Code or Codex CLI on G2 (`scripts/g2-send-image.sh`, usage prompt is auto-injected into both CLIs at launch)
 - Launch Claude Code / Codex CLI sessions by voice via Even App custom AI
 
 ## Known limitations
@@ -192,6 +193,25 @@ Repository candidates are scanned from `CC_G2_REPO_ROOTS` (default: `~/Repos`).
 - Add `?dev=1` to show Developer Tools / Event Log
 - Use `SIMULATOR_VERSION=...` if you want to switch simulator versions
 
+## G2 screen mirror / camera overlay viewer
+
+![G2 mirror camera overlay](./docs/screenshots/g2-mirror-camera-overlay.gif)
+
+Renders an approximation of what the G2 is currently showing on a 576x288 canvas (disabled by default, opt-in).
+
+- **In-page mirror**: add `?mirror=1` to the URL opened in the Even App to show a "G2 Mirror" card
+- **Remote viewer**: add `?mirrorpub=1` (or start Vite with `VITE_MIRROR_PUBLISH=1`), then open `http://<pc-ip>:5173/mirror.html` from any device on the same LAN / tailnet. The viewer only talks to its own origin's `/api` (Vite dev proxy → Hub)
+- **Camera overlay (for SNS screenshots)**: getUserMedia needs HTTPS, so expose the viewer via tailscale serve:
+
+```bash
+tailscale serve --bg --https=443 http://127.0.0.1:5173
+# then open https://<machine>.<tailnet>.ts.net/mirror.html in iPhone Safari
+```
+
+"カメラ開始" overlays the mirror on the camera feed with `mix-blend-mode: screen` (black becomes transparent, only the green G2 imagery shows). "合成して保存" downloads a composited PNG.
+
+Notes: the mirror is an approximation (device font, list selection highlight, and firmware scrolling are not reproduced). Mirror rendering/publishing is automatically deferred during image transfers for device stability.
+
 ## Development
 
 ```bash
@@ -208,6 +228,12 @@ pnpm test:watch
 - **After a PC restart, run `cc-g2 !`** to restart all services — Hub and Voice Entry tokens can get out of sync after a reboot
 - If Voice Entry won't start: check `cc-g2 status` and make sure `CC_G2_VOICE_ENTRY_ENABLED=0` is not set in `.env.local`
 - If Even App can't connect: verify the Bearer token with `cat tmp/voice-entry/voice-entry-token` and check Tailscale connectivity
+- If Hub history files grow too large: stop the Hub (`cc-g2 stop`), then run `node scripts/prune-hub-history.mjs --dry-run` to preview and `node scripts/prune-hub-history.mjs` to prune (keeps 14 days by default, with automatic backup)
+
+## Acknowledgments
+
+- [Visionote](https://github.com/takashicompany/visionote) — Image rendering on G2 via Even Hub SDK; referenced for the image display pipeline
+- [EvenAI Anthropic Bridge](https://github.com/jase-perf/evenai-anthropic-bridge) — Claude API bridge for G2; referenced for the Voice Entry (custom AI agent) integration
 
 ## Links
 
