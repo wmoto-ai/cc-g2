@@ -23,6 +23,16 @@ export const appConfig = {
   logMirror:
     readBool(import.meta.env.VITE_LOG_MIRROR, false) ||
     new URLSearchParams(globalThis.location?.search || '').get('logmirror') === '1',
+  /** ページ内 G2 ミラー（?mirror=1 でセッション限定有効化。plan/g2-mirror.md）
+   *  無効時は bridge 観測タップ自体を配線しないため、既存経路への追加負荷はゼロ。 */
+  mirrorView:
+    readBool(import.meta.env.VITE_MIRROR, false) ||
+    new URLSearchParams(globalThis.location?.search || '').get('mirror') === '1',
+  /** ミラー状態を Hub へ送信してビューア（mirror.html）に配信する
+   *  （?mirrorpub=1 / VITE_MIRROR_PUBLISH。plan/g2-mirror.md M2） */
+  mirrorPublish:
+    readBool(import.meta.env.VITE_MIRROR_PUBLISH, false) ||
+    new URLSearchParams(globalThis.location?.search || '').get('mirrorpub') === '1',
 }
 
 export function canUseGroqStt() {

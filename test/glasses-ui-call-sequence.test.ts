@@ -101,17 +101,17 @@ function makeItems(): NotificationItem[] {
       createdAt: new Date(FIXED_NOW.getTime() - 30_000).toISOString(), // now
       replyCapable: true,
       replyStatus: 'pending',
-      metadata: { project: 'cc-g2', sessionLabel: '#2', tmuxTarget: 'g2-cc-g2-private-4c4a:0.0' },
+      metadata: { project: 'cc-g2', sessionLabel: '#2', tmuxTarget: 'g2-cc-g2-4c4a:0.0' },
     },
     {
       id: 'n2',
       source: 'claude-code',
       title: 'Edit',
-      summary: 'Tool: Edit /Users/iwa/Repos/github.com/wmoto-ai/cc-g2-private/src/glasses-ui.ts',
+      summary: 'Tool: Edit /home/user/repos/cc-g2/src/glasses-ui.ts',
       createdAt: new Date(FIXED_NOW.getTime() - 5 * 60_000).toISOString(), // 5m
       replyCapable: true,
       replyStatus: 'delivered',
-      metadata: { cwd: '/Users/iwa/Repos/very-long-project-name-here', tmuxTarget: 'g2-myrepo-1a2b-2:0.0' },
+      metadata: { cwd: '/home/user/repos/very-long-project-name-here', tmuxTarget: 'g2-myrepo-1a2b-2:0.0' },
     },
     {
       id: 'n3',
@@ -281,7 +281,7 @@ describe('showNotificationList', () => {
     const { conn, calls } = createMockConn()
     const ui = createGlassesUI()
     ui.setSessionActivities([
-      { tmuxTarget: 'g2-cc-g2-private-4c4a:0.0', label: 'cc-g2', state: 'active' },
+      { tmuxTarget: 'g2-cc-g2-4c4a:0.0', label: 'cc-g2', state: 'active' },
       { tmuxTarget: 'g2-minimalmem-246c:0.0', label: 'mm', state: 'idle' },
       { tmuxTarget: 'g2-other-1111:0.0', label: 'other', state: 'error' },
       { tmuxTarget: 'g2-dead-2222:0.0', label: 'dead', state: 'dead' },

@@ -15,6 +15,9 @@ import { connectGlasses } from './app/connect'
 import { connectNotificationSSE, flushPendingNotificationUi } from './hub/sse-client'
 import { openImageDetail } from './g2/flows'
 import { ensureNotifEventHandler } from './g2/event-router'
+import { createMirrorStore } from './mirror/state'
+import { attachMirrorCanvas } from './mirror/renderer'
+import { attachMirrorPublisher } from './mirror/publisher'
 
 const appRoot = document.querySelector<HTMLDivElement>('#app')!
 const uiSearch = new URLSearchParams(globalThis.location?.search || '')
@@ -53,6 +56,18 @@ appRoot.innerHTML = `
     </div>
     <p id="last-sync-status" class="inline-note">最終更新: まだありません</p>
   </section>
+
+  ${appConfig.mirrorView ? `
+  <section class="card">
+    <div class="section-head">
+      <div>
+        <h2>G2 Mirror</h2>
+        <p class="card-copy">G2 に表示中の画面の近似ミラー（接続後に描画が走ると更新されます）</p>
+      </div>
+    </div>
+    <canvas id="g2-mirror-canvas" class="mirror-canvas"></canvas>
+  </section>
+  ` : ''}
 
   <section class="card">
     <div class="section-head">
@@ -107,8 +122,24 @@ appRoot.innerHTML = `
 
 const glassesUI = createGlassesUI()
 const notifClient = createNotificationClient(appConfig.notificationHubUrl)
+// G2 ミラー（?mirror=1 / ?mirrorpub=1 時のみ生成。plan/g2-mirror.md 参照）
+const mirrorStore = appConfig.mirrorView || appConfig.mirrorPublish ? createMirrorStore() : null
 // 共有可変状態は AppContext 1オブジェクトに集約（生成はここで1回のみ。src/app/context.ts 参照）
-const ctx = createAppContext({ glassesUI, notifClient, ui: { setPill, updateDashboard, updateNotifInfo } })
+const ctx = createAppContext({ glassesUI, notifClient, mirror: mirrorStore, ui: { setPill, updateDashboard, updateNotifInfo } })
+
+if (mirrorStore && appConfig.mirrorView) {
+  const mirrorCanvas = document.getElementById('g2-mirror-canvas') as HTMLCanvasElement | null
+  // 静音化: 画像BLE転送中は描画を繰り延べる（ctx.imageTransferQuiet を配線）
+  if (mirrorCanvas) attachMirrorCanvas(mirrorCanvas, mirrorStore, () => ctx.imageTransferQuiet)
+}
+if (mirrorStore && appConfig.mirrorPublish) {
+  // Hub 経由でビューア（mirror.html）へ配信（静音化も同様に配線）
+  attachMirrorPublisher(mirrorStore, {
+    hubUrl: appConfig.notificationHubUrl,
+    headers: () => createHubHeaders(),
+    isQuiet: () => ctx.imageTransferQuiet,
+  })
+}
 
 // ?autoconnect=1 のときのみ自動接続する（opt-in。シミュレーター自動検証用）。
 // 一時期 bridge 検出時のデフォルト自動接続にしていたが、Vite dev のページリロードのたびに

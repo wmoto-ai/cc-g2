@@ -43,6 +43,7 @@ import {
   handleApprovalsList,
 } from './approvals.mjs'
 import { matchImagePath, loadStoredImages, handleImagePost, handleImageGet } from './images.mjs'
+import { handleG2DisplayPost, handleG2DisplayGet } from './g2-display.mjs'
 import { handleSseEvents } from './sse.mjs'
 import { handlePermissionRequestHook } from './hooks.mjs'
 import { handleSttTranscription, handleSttRealtimeToken, handleSttSonioxToken } from './stt-routes.mjs'
@@ -71,6 +72,9 @@ const publicApiRoutes = new Set([
   'GET /api/events',
   'POST /api/client-events',
   'POST /api/location',
+  // ミラービューア（mirror.html）はトークンを持たないため画像 GET と同じ公開扱い
+  // （trusted network 前提。POST /api/g2-display は要トークンのまま）
+  'GET /api/g2-display',
 ])
 
 function isPublicApiRequest(method, pathname) {
@@ -180,6 +184,16 @@ const server = createServer(async (req, res) => {
     if (imageId) {
       return await handleImageGet(req, res, imageId)
     }
+  }
+
+  // --- G2 ミラー表示状態 (plan/g2-mirror.md) ---
+
+  if (method === 'POST' && pathname === '/api/g2-display') {
+    return await handleG2DisplayPost(req, res)
+  }
+
+  if (method === 'GET' && pathname === '/api/g2-display') {
+    return handleG2DisplayGet(req, res)
   }
 
   if (method === 'POST' && pathname === '/api/client-events') {
@@ -345,6 +359,9 @@ const server = createServer(async (req, res) => {
         '',
         'POST /api/images?title=...       (raw png/jpeg body -> G2 image notification)',
         'GET  /api/images/:id             (serve stored image)',
+        '',
+        'POST /api/g2-display             (receive G2 mirror display state)',
+        'GET  /api/g2-display             (latest G2 mirror display state)',
       ].join('\n'),
     )
   }

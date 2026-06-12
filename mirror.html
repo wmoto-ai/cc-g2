@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <title>cc-g2 — G2 Mirror Viewer</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; color: #d7e0d7; font-family: system-ui, sans-serif; overscroll-behavior: none; }
+      #stage { position: fixed; inset: 0; overflow: hidden; }
+      #camera { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+      #mirror-canvas { position: absolute; left: 50%; transform: translateX(-50%); width: 86%; mix-blend-mode: screen; pointer-events: none; }
+      #controls {
+        position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+        background: rgba(10, 14, 10, 0.78); backdrop-filter: blur(8px);
+        display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 13px;
+      }
+      #controls button {
+        appearance: none; border: 1px solid #3a463a; border-radius: 10px; background: #16201600;
+        background-color: #162016; color: #c9f5d4; padding: 8px 14px; font-size: 13px;
+      }
+      #controls label { display: flex; align-items: center; gap: 6px; }
+      #controls input[type="range"] { width: 110px; }
+      #status { margin-left: auto; color: #8f9b8b; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <video id="camera" autoplay playsinline muted></video>
+      <canvas id="mirror-canvas"></canvas>
+    </div>
+    <div id="controls">
+      <button id="camera-btn" type="button">カメラ開始</button>
+      <button id="save-btn" type="button">合成して保存</button>
+      <label>大きさ <input id="size-range" type="range" min="20" max="100" value="86" /></label>
+      <label>位置 <input id="pos-range" type="range" min="0" max="80" value="18" /></label>
+      <span id="status">接続中...</span>
+    </div>
+    <script type="module" src="/src/mirror/viewer.ts"></script>
+  </body>
+</html>

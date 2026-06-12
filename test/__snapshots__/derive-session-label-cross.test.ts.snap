@@ -3,7 +3,7 @@
 exports[`deriveSessionLabel クライアント/サーバー同一性 > 代表値のスナップショット（両実装共通の期待値） 1`] = `
 [
   {
-    "input": "g2-cc-g2-private-4c4a:0.0",
+    "input": "g2-cc-g2-4c4a:0.0",
     "label": "#1",
   },
   {

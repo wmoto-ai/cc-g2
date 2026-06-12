@@ -17,6 +17,7 @@ import type { createNotificationClient } from '../notifications'
 import type { WebSpeechSession } from '../stt/webspeech'
 import type { OpenAIRealtimeSTT } from '../stt/openai-realtime'
 import type { SonioxRealtimeSTT } from '../stt/soniox-realtime'
+import type { MirrorStore } from '../mirror/state'
 
 export type GlassesUI = ReturnType<typeof createGlassesUI>
 export type NotificationClient = ReturnType<typeof createNotificationClient>
@@ -52,6 +53,9 @@ export type AppContext = {
   readonly glassesUI: GlassesUI
   readonly notifClient: NotificationClient
   readonly ui: AppUi
+  // G2 ミラー（?mirror=1 時のみ main.ts が生成。null なら app/connect.ts は
+  // bridge 観測タップを配線しない。plan/g2-mirror.md 参照）
+  readonly mirror: MirrorStore | null
 
   // --- 接続状態 ---【主な書き手: app/connect.ts】
   connection: BridgeConnection | null
@@ -128,11 +132,13 @@ export function createAppContext(deps: {
   glassesUI: GlassesUI
   notifClient: NotificationClient
   ui: AppUi
+  mirror?: MirrorStore | null
 }): AppContext {
   return {
     glassesUI: deps.glassesUI,
     notifClient: deps.notifClient,
     ui: deps.ui,
+    mirror: deps.mirror ?? null,
 
     connection: null,
     connectInFlight: false,

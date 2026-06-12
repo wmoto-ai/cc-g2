@@ -79,7 +79,7 @@ export function createNotificationScreens(
   }
 
   function sessionShortName(entry: SessionActivityEntry): string {
-    // "g2-cc-g2-private-4c4a:0.0" → "cc-g2" , "g2-minimalmem-246c:0.0" → "mm"
+    // "g2-cc-g2-4c4a:0.0" → "cc-g2" , "g2-minimalmem-246c:0.0" → "mm"
     const session = entry.tmuxTarget.split(':')[0] || ''
     const slug = session.replace(/^g2-/, '').replace(/-[0-9a-f]{4}$/, '')
     // Truncate at word boundary, strip trailing hyphen

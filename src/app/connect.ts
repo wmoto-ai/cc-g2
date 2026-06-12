@@ -12,6 +12,7 @@ import { errorMessage } from '../app/format'
 import type { AppContext } from './context'
 import { ensureNotifEventHandler } from '../g2/event-router'
 import { connectNotificationSSE } from '../hub/sse-client'
+import { wrapBridgeForMirror } from '../mirror/bridge-tap'
 
 // --- Connect ---
 // 二重接続防止: initBridge() を複数回呼ぶと SDK bridge への onEvenHubEvent 登録が
@@ -32,6 +33,13 @@ export async function connectGlasses(ctx: AppContext): Promise<void> {
 
   try {
     ctx.connection = await initBridge()
+    // G2 ミラー: bridge を観測タップでラップする（描画前のここで1回だけ。
+    // render-core の WeakMap キーは conn.bridge 参照のため途中差し替え禁止。
+    // src/mirror/bridge-tap.ts / plan/g2-mirror.md 参照）
+    if (ctx.mirror && ctx.connection.bridge) {
+      ctx.connection.bridge = wrapBridgeForMirror(ctx.connection.bridge, ctx.mirror)
+      log('G2ミラー: bridge 観測タップを有効化')
+    }
     ctx.ui.updateDashboard()
     log(`接続成功: ${ctx.connection.mode} モード`)
 

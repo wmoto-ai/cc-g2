@@ -34,6 +34,9 @@ const store = {
   uiSessions: new Map(),
   /** @type {{lat:number,lng:number,altitude:number|null,timestamp:string,speed:number|null,battery:number|null,receivedAt:string}|null} */
   lastLocation: null,
+  /** G2 ミラー表示状態（最新1件のみ・揮発。再代入されるため store.g2Display 経由で読み書き）
+   *  @type {{seq:number,updatedAt:number,containers:unknown[],receivedAt:string}|null} */
+  g2Display: null,
   /** @type {Set<import('node:http').ServerResponse>} */
   sseClients: new Set(),
   /** @type {Map<string, {tmuxTarget:string, label:string, state:SessionActivityState, updatedAt:string}>} */

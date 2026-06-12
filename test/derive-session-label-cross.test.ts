@@ -12,7 +12,7 @@ import { deriveSessionLabel as clientImpl } from '../src/g2/text-format'
 import { deriveSessionLabel as serverImpl } from '../server/notification-hub/notification-utils.mjs'
 
 const CASES = [
-  'g2-cc-g2-private-4c4a:0.0', // ハッシュ付き → #1
+  'g2-cc-g2-4c4a:0.0', // ハッシュ付き → #1
   'g2-myrepo-1a2b-2:0.0', // ハッシュ+連番 → #2
   'g2-myrepo-1a2b-12:0.0', // 2桁連番 → #12
   'g2-minimalmem-246c:0.0', // ハッシュのみ → #1

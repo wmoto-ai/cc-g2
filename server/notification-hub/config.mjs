@@ -41,6 +41,11 @@ const hubMaxBodyBytes = parseIntEnv('HUB_MAX_BODY_BYTES', 1048576, 1024)
 const hubMaxSttBodyBytes = Math.max(hubMaxBodyBytes, parseIntEnv('HUB_MAX_STT_BODY_BYTES', 12582912))
 const hubMaxImageBytes = parseIntEnv('HUB_MAX_IMAGE_BYTES', 10485760, 1024)
 const hubMaxImages = parseIntEnv('HUB_MAX_IMAGES', 20, 1)
+// G2 ミラー状態は画像タイルの base64（約1.33倍）を含むため既定 1MB と別枠にする
+const hubMaxG2DisplayBodyBytes = Math.max(
+  hubMaxBodyBytes,
+  parseIntEnv('HUB_MAX_G2_DISPLAY_BODY_BYTES', 4194304),
+)
 const imagesDir = path.join(dataDir, 'images')
 const approvalsFile = path.join(dataDir, 'approvals.jsonl')
 const UI_SESSION_COOKIE = 'cc_g2_ui_session'
@@ -69,6 +74,7 @@ export {
   hubMaxSttBodyBytes,
   hubMaxImageBytes,
   hubMaxImages,
+  hubMaxG2DisplayBodyBytes,
   imagesDir,
   approvalsFile,
   UI_SESSION_COOKIE,
