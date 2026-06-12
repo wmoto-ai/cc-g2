@@ -15,6 +15,7 @@ Even G2 で通知を開き、音声で返答し、その内容を Claude Code �
 - **音声コメント**: 拒否時に音声で指示を返す
 - **完了通知の確認**: Claude Code / Codex CLI の完了通知を G2 で確認
 - **通知一覧 / 詳細表示**: G2 で最近の通知を確認
+- **画像表示**: Claude Code / Codex CLI から送った画像・スクリーンショットを G2 のレンズに表示（`scripts/g2-send-image.sh`、使い方プロンプトは起動時に両 CLI へ自動注入）
 - **音声でセッション起動**: G2 に話しかけて Claude Code / Codex CLI セッションを起動（Even App カスタム AI 連携）
 
 ## 既知の制限
@@ -315,9 +316,19 @@ pnpm test:watch
 ```text
 cc-g2/
 ├── src/                      # G2 Web UI (TypeScript + Vite)
-├── server/notification-hub/  # Notification Hub
+│   ├── main.ts               #   エントリ（DOM 構築・dashboard・配線）
+│   ├── glasses-ui.ts         #   G2 画面 API のファサード
+│   ├── app/                  #   アプリ状態 (AppContext)・接続・整形
+│   ├── hub/                  #   Hub との SSE 通信
+│   ├── g2/                   #   G2 描画基盤 (render-core ※凍結)・テキスト整形・イベント処理
+│   │   └── screens/          #   画面別モジュール（通知 / 質問 / 返信 / 画像）
+│   ├── stt/                  #   音声認識 (Groq / OpenAI / Soniox / WebSpeech)
+│   ├── image/                #   画像タイル変換パイプライン
+│   └── audio/                #   WAV エンコード
+├── server/notification-hub/  # Notification Hub（index.mjs + 機能別モジュール）
 ├── server/voice-entry/       # Voice Entry サーバー
 ├── scripts/                  # 起動 / hook / simulator 用スクリプト
+│   └── lib/                  #   cc-g2.sh の分割ライブラリ（tokens / infra / tmux / agent-launch / doctor）
 ├── test/                     # テスト
 ├── .claude/settings.json     # この repo 作業用の設定
 └── .env.example              # 環境変数テンプレート
@@ -332,6 +343,7 @@ cc-g2/
 - **Voice entry が起動しない**: `cc-g2 status` で確認。`.env.local` に `CC_G2_VOICE_ENTRY_ENABLED=0` が設定されていないか確認し、`cc-g2 !` で再起動
 - **Even App から接続できない**: `cat tmp/voice-entry/voice-entry-token` でトークンを確認。Even App の Bearer トークンと一致しているか、Tailscale で iPhone → Mac に到達できるかも確認
 - **設定変更が反映されない**: `cc-g2 !` でインフラを再起動。tmux セッション外からは `cc-g2 stop && cc-g2`
+- **Hub の履歴ファイルが肥大化した**: `tmp/notification-hub/*.jsonl` は無期限に追記されます。`cc-g2 stop` してから `node scripts/prune-hub-history.mjs --dry-run` で削減量を確認し、`node scripts/prune-hub-history.mjs`（デフォルト14日保持、実行前に自動バックアップ）で間引けます
 
 ## 既知の制限 / 参考リンク
 

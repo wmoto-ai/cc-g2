@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@evenrealities/even_hub_sdk':
-        specifier: ^0.0.7
-        version: 0.0.7
+        specifier: ^0.0.9
+        version: 0.0.9
       vite:
         specifier: ^7.3.2
         version: 7.3.2
@@ -180,8 +180,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@evenrealities/even_hub_sdk@0.0.7':
-    resolution: {integrity: sha512-AInCBaNl+RsjnjsxkrPds2XkMyi8w35nF7daHjz7YrgMm8bkJrDDrr4eBatTj/PwjzuEy4C6XY2e+s6Fut0Wlg==}
+  '@evenrealities/even_hub_sdk@0.0.9':
+    resolution: {integrity: sha512-LlqqX1sp3sgBs86DSZs5J4nzTnoAV0ZHwcEo1xtOB9cGSrrgNv+6wMiVmR4CfynVeT5NJs/xE3hwO0Hvep17mg==}
     engines: {node: ^20.0.0 || >=22.0.0}
 
   '@jridgewell/sourcemap-codec@1.5.5':
@@ -642,7 +642,7 @@ snapshots:
   '@esbuild/win32-x64@0.27.3':
     optional: true
 
-  '@evenrealities/even_hub_sdk@0.0.7': {}
+  '@evenrealities/even_hub_sdk@0.0.9': {}
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 

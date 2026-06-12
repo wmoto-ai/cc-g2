@@ -1,19 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import { concatChunks, encodePcm16kMonoS16leToWav } from '../src/audio/wav'
-import { formatForG2Display, formatForG2ScrollableText } from '../src/g2-format'
-
-describe('formatForG2Display', () => {
-  it('returns fallback text for empty input', () => {
-    expect(formatForG2Display('   ')).toBe('（認識結果なし）')
-  })
-
-  it('wraps text into multiple lines without exceeding max lines', () => {
-    expect(formatForG2Display('alpha beta gamma delta epsilon', 2, 12)).toBe('alpha beta\ngamma delta…')
-  })
-})
+import { formatForG2ScrollableText } from '../src/g2/text-format'
 
 describe('formatForG2ScrollableText', () => {
+  it('returns fallback text for empty input', () => {
+    expect(formatForG2ScrollableText('   ')).toBe('（認識結果なし）')
+  })
+
   it('keeps long STT text scrollable instead of truncating it to a few lines', () => {
     const text = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ')
     const formatted = formatForG2ScrollableText(text)
@@ -25,6 +19,11 @@ describe('formatForG2ScrollableText', () => {
     const formatted = formatForG2ScrollableText('あ'.repeat(400), 30)
     expect(new TextEncoder().encode(formatted).length).toBeLessThanOrEqual(30)
     expect(formatted.endsWith('…')).toBe(true)
+  })
+
+  it('ちょうど maxBytes に収まるテキストは切り詰めない（truncateByBytes 一本化の境界確認）', () => {
+    const text = 'あ'.repeat(10) // 30 bytes
+    expect(formatForG2ScrollableText(text, 30)).toBe(text)
   })
 })
 

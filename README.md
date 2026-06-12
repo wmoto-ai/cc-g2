@@ -15,6 +15,7 @@ Even G2 can open notifications, record a voice reply, and send that response bac
 - Send voice comments back to Claude Code
 - Check Claude Code / Codex CLI completion notifications on G2
 - Browse recent notifications and details on the glasses
+- Display images / screenshots sent from Claude Code or Codex CLI on G2 (`scripts/g2-send-image.sh`, usage prompt is auto-injected into both CLIs at launch)
 - Launch Claude Code / Codex CLI sessions by voice via Even App custom AI
 
 ## Known limitations
@@ -208,6 +209,7 @@ pnpm test:watch
 - **After a PC restart, run `cc-g2 !`** to restart all services — Hub and Voice Entry tokens can get out of sync after a reboot
 - If Voice Entry won't start: check `cc-g2 status` and make sure `CC_G2_VOICE_ENTRY_ENABLED=0` is not set in `.env.local`
 - If Even App can't connect: verify the Bearer token with `cat tmp/voice-entry/voice-entry-token` and check Tailscale connectivity
+- If Hub history files grow too large: stop the Hub (`cc-g2 stop`), then run `node scripts/prune-hub-history.mjs --dry-run` to preview and `node scripts/prune-hub-history.mjs` to prune (keeps 14 days by default, with automatic backup)
 
 ## Links
 
