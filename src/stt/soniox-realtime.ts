@@ -69,7 +69,7 @@ export class SonioxRealtimeSTT {
         log('Soniox Realtime: WebSocket connected, sending config...')
         ws.send(JSON.stringify({
           api_key: apiKey,
-          model: 'stt-rt-v4',
+          model: 'stt-rt-v5',
           audio_format: 'pcm_s16le',
           sample_rate: 16000,
           num_channels: 1,
@@ -328,7 +328,7 @@ export class SonioxRealtimeSTT {
     return {
       text,
       provider: 'soniox',
-      model: 'stt-rt-v4',
+      model: 'stt-rt-v5',
     }
   }
 
