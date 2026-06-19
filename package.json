@@ -46,13 +46,5 @@
   "devDependencies": {
     "typescript": "^5.9.3",
     "vitest": "^4.1.8"
-  },
-  "pnpm": {
-    "overrides": {
-      "esbuild": "^0.28.1"
-    },
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }
