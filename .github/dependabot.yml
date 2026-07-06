@@ -1,0 +1,21 @@
+# Supply chain hardening: version updates with cooldown.
+# Security updates は別系統(account-level で有効済み)で cooldown の影響を受けない。
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 7
+      semver-patch-days: 3
+      semver-major-days: 30
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
