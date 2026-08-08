@@ -40,11 +40,11 @@
     "release": "npm version patch && pnpm publish && git push --follow-tags && gh release create \"v$(node -p \"require('./package.json').version\")\" --generate-notes"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.11",
-    "vite": "^8.1.0"
+    "@evenrealities/even_hub_sdk": "^0.0.12",
+    "vite": "^8.1.5"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   }
 }
