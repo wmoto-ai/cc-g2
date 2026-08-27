@@ -57,6 +57,10 @@ const CODEX_TRIGGER_CLEANUP_PATTERN =
   /(?<![A-Za-z0-9_])(?:--codex|codex|codecs|code[\s　-]*x)(?![A-Za-z0-9_])|(?:コーデックス|コード[\s　-]*エックス|コード[\s　-]*x)/gi
 const DEDUP_WINDOW_MS = 1000
 let _lastRequest = { content: '', time: 0, response: null }
+// 処理中（レスポンス未確定）の同一内容リクエストを合流させる。
+// _lastRequest の窓は「完了後の再送」しか防げず、selector が最大25秒かかる間の
+// 二重発火でセッションが二重起動していた（test/voice-entry.test.mjs 参照）
+const _inflight = new Map()
 
 ensureParentDir(VOICE_ENTRY_LOG_FILE)
 ensureParentDir(VOICE_ENTRY_LAST_SESSION_FILE)
@@ -566,16 +570,6 @@ function runCcG2Command(args) {
   })
 }
 
-async function sessionExists(sessionName) {
-  if (!sessionName) return false
-  try {
-    const result = await runCcG2Command(['has-session', '--session', sessionName])
-    return result?.exists === true
-  } catch {
-    return false
-  }
-}
-
 async function findSessionForWorkdir(workdir, agentMode = 'claude') {
   if (!workdir) return null
   try {
@@ -708,112 +702,19 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, _lastRequest.response)
         return
       }
-      _lastRequest = { content: userText, time: now, response: null }
 
-      if (VOICE_ENTRY_MODE === 'session-entry') {
-        const target = await resolveLaunchTarget(userText)
-        const agentMode = detectAgentMode(userText)
-        const agentLabel = agentMode === 'codex' ? 'Codex' : 'Claude Code'
-
-        // continue_latest: find an existing session for the selector-chosen workdir
-        let continueSessionName = null
-        if (target.mode === 'continue_latest') {
-          continueSessionName = await findSessionForWorkdir(target.workdir, agentMode)
-        }
-
-        let launch
-        let canContinue = false
-        if (continueSessionName) {
-          try {
-            launch = await continueCcG2Session(target.prompt, continueSessionName)
-            canContinue = true
-          } catch (error) {
-            appendLog({
-              type: 'session_continue_error',
-              userText,
-              message: error instanceof Error ? error.message : String(error),
-              sessionName: continueSessionName,
-            })
-          }
-        }
-        if (!launch) {
-          launch = await launchCcG2Session(target.prompt, target.workdir, agentMode)
-        }
-
-        const effectiveWorkdir = target.workdir
-        const effectiveSessionName = launch.sessionName || continueSessionName || ''
-        const content = canContinue
-          ? `既存の${agentLabel}セッションに続けて依頼しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
-          : `新しい${agentLabel}セッションを開始しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
-
-        writeLastSession({
-          sessionName: effectiveSessionName,
-          workdir: effectiveWorkdir,
-          agentMode,
-          prompt: target.prompt,
-          updatedAt: new Date().toISOString(),
+      // 処理中の同一内容リクエストは同じ処理に合流させ、二重起動を防ぐ
+      let pending = _inflight.get(userText)
+      if (pending) {
+        appendLog({ type: 'dedup_inflight', userText })
+      } else {
+        _lastRequest = { content: userText, time: now, response: null }
+        pending = processUserRequest(body, requestModel, userText).finally(() => {
+          _inflight.delete(userText)
         })
-
-        appendLog({
-          type: canContinue ? 'session_continue' : 'session_launch',
-          model: requestModel,
-          userText,
-          prompt: target.prompt,
-          sessionName: effectiveSessionName,
-          workdir: effectiveWorkdir,
-          agentMode,
-          workdirScore: target.score,
-          workdirSource: target.source,
-          mode: target.mode,
-          content,
-        })
-
-        const responseBody = {
-          id: `chatcmpl-${crypto.randomUUID()}`,
-          object: 'chat.completion',
-          created: Math.floor(Date.now() / 1000),
-          model: requestModel,
-          choices: [
-            {
-              index: 0,
-              message: { role: 'assistant', content },
-              finish_reason: 'stop',
-            },
-          ],
-        }
-        _lastRequest.response = responseBody
-        sendJson(res, 200, responseBody)
-        return
+        _inflight.set(userText, pending)
       }
-
-      const prompt = buildPrompt(body.messages)
-      const claudeResult = await runClaude(prompt)
-      const rawResult = typeof claudeResult?.result === 'string' ? claudeResult.result : ''
-      const content = truncateForDisplay(sanitizeClaudeText(rawResult))
-
-      appendLog({
-        type: 'chat_completion',
-        model: requestModel,
-        prompt,
-        rawResult,
-        content,
-      })
-
-      const responseBody = {
-        id: `chatcmpl-${crypto.randomUUID()}`,
-        object: 'chat.completion',
-        created: Math.floor(Date.now() / 1000),
-        model: requestModel,
-        choices: [
-          {
-            index: 0,
-            message: { role: 'assistant', content },
-            finish_reason: 'stop',
-          },
-        ],
-      }
-      _lastRequest.response = responseBody
-      sendJson(res, 200, responseBody)
+      sendJson(res, 200, await pending)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const content = message.includes('timed out')
@@ -837,6 +738,112 @@ const server = http.createServer((req, res) => {
     }
   })
 })
+
+async function processUserRequest(body, requestModel, userText) {
+  if (VOICE_ENTRY_MODE === 'session-entry') {
+    const target = await resolveLaunchTarget(userText)
+    const agentMode = detectAgentMode(userText)
+    const agentLabel = agentMode === 'codex' ? 'Codex' : 'Claude Code'
+
+    // continue_latest: find an existing session for the selector-chosen workdir
+    let continueSessionName = null
+    if (target.mode === 'continue_latest') {
+      continueSessionName = await findSessionForWorkdir(target.workdir, agentMode)
+    }
+
+    let launch
+    let canContinue = false
+    if (continueSessionName) {
+      try {
+        launch = await continueCcG2Session(target.prompt, continueSessionName)
+        canContinue = true
+      } catch (error) {
+        appendLog({
+          type: 'session_continue_error',
+          userText,
+          message: error instanceof Error ? error.message : String(error),
+          sessionName: continueSessionName,
+        })
+      }
+    }
+    if (!launch) {
+      launch = await launchCcG2Session(target.prompt, target.workdir, agentMode)
+    }
+
+    const effectiveWorkdir = target.workdir
+    const effectiveSessionName = launch.sessionName || continueSessionName || ''
+    const content = canContinue
+      ? `既存の${agentLabel}セッションに続けて依頼しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
+      : `新しい${agentLabel}セッションを開始しました。作業場所は ${path.basename(effectiveWorkdir)} です。結果はG2通知で返ります。`
+
+    writeLastSession({
+      sessionName: effectiveSessionName,
+      workdir: effectiveWorkdir,
+      agentMode,
+      prompt: target.prompt,
+      updatedAt: new Date().toISOString(),
+    })
+
+    appendLog({
+      type: canContinue ? 'session_continue' : 'session_launch',
+      model: requestModel,
+      userText,
+      prompt: target.prompt,
+      sessionName: effectiveSessionName,
+      workdir: effectiveWorkdir,
+      agentMode,
+      workdirScore: target.score,
+      workdirSource: target.source,
+      mode: target.mode,
+      content,
+    })
+
+    const responseBody = {
+      id: `chatcmpl-${crypto.randomUUID()}`,
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model: requestModel,
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content },
+          finish_reason: 'stop',
+        },
+      ],
+    }
+    _lastRequest.response = responseBody
+    return responseBody
+  }
+
+  const prompt = buildPrompt(body.messages)
+  const claudeResult = await runClaude(prompt)
+  const rawResult = typeof claudeResult?.result === 'string' ? claudeResult.result : ''
+  const content = truncateForDisplay(sanitizeClaudeText(rawResult))
+
+  appendLog({
+    type: 'chat_completion',
+    model: requestModel,
+    prompt,
+    rawResult,
+    content,
+  })
+
+  const responseBody = {
+    id: `chatcmpl-${crypto.randomUUID()}`,
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model: requestModel,
+    choices: [
+      {
+        index: 0,
+        message: { role: 'assistant', content },
+        finish_reason: 'stop',
+      },
+    ],
+  }
+  _lastRequest.response = responseBody
+  return responseBody
+}
 
 server.listen(PORT, HOST, () => {
   console.log(`Claude Code voice-entry listening on http://${HOST}:${PORT}`)

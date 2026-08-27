@@ -8,6 +8,7 @@
  */
 import type { BridgeConnection } from '../../bridge'
 import { log } from '../../log'
+import { t } from '../../i18n'
 import { upgradeText, type RenderCore } from '../render-core'
 
 export function createReplyScreens(core: RenderCore) {
@@ -32,9 +33,9 @@ export function createReplyScreens(core: RenderCore) {
 
       await renderHeaderBodyPage(conn, {
         headerContainerName: 'reply-header',
-        headerContent: '音声返信',
+        headerContent: t('reply_header'),
         bodyContainerName: 'reply-body',
-        bodyContent: '録音中...\n\nDblClick = 停止\nSwipe = キャンセル',
+        bodyContent: t('reply_recording_body'),
         targetLayout: 'reply-recording',
         layoutSet: 'reply-recording',
       })
@@ -63,7 +64,7 @@ export function createReplyScreens(core: RenderCore) {
       // reply-recording レイアウト時は textContainerUpgrade で body だけ差し替え（特殊最適化パス）
       const bridgeKey = bridgeKeyOf(conn)
       if (startupRenderedBridges.has(bridgeKey) && layoutByBridge.get(bridgeKey) === 'reply-recording') {
-        if (await upgradeText(conn, 2, 'reply-body', 'STT処理中...')) {
+        if (await upgradeText(conn, 2, 'reply-body', t('stt_processing'))) {
           log('G2にSTT処理中表示')
           return
         }
@@ -71,9 +72,9 @@ export function createReplyScreens(core: RenderCore) {
 
       await renderHeaderBodyPage(conn, {
         headerContainerName: 'reply-header',
-        headerContent: '音声返信',
+        headerContent: t('reply_header'),
         bodyContainerName: 'reply-body',
-        bodyContent: 'STT処理中...',
+        bodyContent: t('stt_processing'),
         targetLayout: 'reply-recording',
         layoutSet: 'reply-recording',
       })
@@ -93,11 +94,11 @@ export function createReplyScreens(core: RenderCore) {
         headerContainerName: 'rply-act-hdr',
         headerYPosition: 4,
         headerHeight: 52,
-        headerContent: '返信内容 OK?',
+        headerContent: t('reply_confirm_header'),
         listContainerName: 'rply-act-lst',
         listYPosition: 58,
         listHeight: 210,
-        listItems: ['送信', '再録', 'キャンセル', '◀ 本文'],
+        listItems: [t('reply_send'), t('reply_rerecord'), t('reply_cancel'), t('reply_body')],
         targetLayout: 'reply-confirm-actions',
         layoutSet: 'reply-confirm-actions',
       })
@@ -113,8 +114,8 @@ export function createReplyScreens(core: RenderCore) {
         return
       }
 
-      const statusLabel = success ? '返信完了' : '返信失敗'
-      const statusPrefix = success ? '送信完了' : '送信失敗'
+      const statusLabel = success ? t('reply_done') : t('reply_failed')
+      const statusPrefix = success ? t('send_done') : t('send_failed')
 
       await renderHeaderBodyPage(conn, {
         headerContainerName: 'rply-rst-hdr',

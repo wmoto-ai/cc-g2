@@ -5,7 +5,7 @@
 # 呼び出し側の前提:
 #   - set -euo pipefail 済み
 #   - lib/infra.sh（is_*_running）, lib/tokens.sh（*_token_matches）を source 済み
-#   - AGENT_MODE, CLAUDE_BIN, CODEX_BIN, G2_PROJECT_DIR, HUB_PORT, VITE_PORT,
+#   - AGENT_MODE, CLAUDE_BIN, CODEX_BIN, COPILOT_BIN, G2_PROJECT_DIR, HUB_PORT, VITE_PORT,
 #     VOICE_ENTRY_PORT, VOICE_ENTRY_ENABLED, BOLD, NC が定義済み
 #   - info / warn / error はエントリ側（cc-g2.sh）で定義済み
 
@@ -19,6 +19,10 @@ check_deps() {
   if [ "$AGENT_MODE" = "codex" ]; then
     if ! command -v "$CODEX_BIN" >/dev/null 2>&1 && ! command -v codex >/dev/null 2>&1; then
       missing+=("codex")
+    fi
+  elif [ "$AGENT_MODE" = "copilot" ]; then
+    if ! command -v "${COPILOT_BIN:-copilot}" >/dev/null 2>&1 && ! command -v copilot >/dev/null 2>&1; then
+      missing+=("copilot")
     fi
   elif ! command -v "$CLAUDE_BIN" >/dev/null 2>&1 && ! command -v claude >/dev/null 2>&1; then
     missing+=("claude")
@@ -110,6 +114,17 @@ cmd_doctor() {
     fi
   else
     info "Voice entry: disabled"
+  fi
+
+  # Telegram adapter
+  if [ "$TG_ADAPTER_ENABLED" = "1" ]; then
+    if is_tg_adapter_running; then
+      info "Telegram adapter (session: $TG_ADAPTER_SESSION): running"
+    else
+      warn "Telegram adapter (session: $TG_ADAPTER_SESSION): stopped"
+    fi
+  else
+    info "Telegram adapter: disabled (TELEGRAM_BOT_TOKEN 未設定)"
   fi
 
   # G2 プロジェクト

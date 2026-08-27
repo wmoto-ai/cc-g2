@@ -4,7 +4,7 @@
  * リファクタ Phase 4 で main.ts から無編集移動（モジュールレベル let → ctx.* の
  * 機械的書き換えと ctx 引数の受け渡しのみ）。可変状態は持たない（AppContext に集約）。
  */
-import { appConfig, createHubHeaders } from '../config'
+import { appConfig } from '../config'
 import { log } from '../log'
 import { errorMessage } from '../app/format'
 import { isAskUserQuestionNotification } from '../app/ask-question'
@@ -12,7 +12,8 @@ import { buildNotificationActions, type AskQuestionData } from '../glasses-ui'
 import { buildImageTiles } from '../image/image-pipeline'
 import { G2_EVENT, getNormalizedEventType } from '../even-events'
 import { IDLE_REOPEN_COOLDOWN_MS, IMAGE_BACK_COOLDOWN_MS, type AppContext } from '../app/context'
-import { applySseEvent, flushPendingNotificationUi } from '../hub/sse-client'
+import { applySseEvent, flushPendingNotificationUi } from '../app/notification-events'
+import { buildSessionGroups, type SessionFilter } from './session-groups'
 
 // 送信結果画面からリスト一覧に復帰する共通処理
 export async function returnToListFromResult(ctx: AppContext) {
@@ -71,11 +72,7 @@ export async function openImageDetail(ctx: AppContext): Promise<void> {
   // （deferSseDuringImageTransfer 参照。転送0.4秒後のSSE到着でクラッシュした実測あり）
   ctx.imageTransferQuiet = true
   try {
-    const res = await fetch(`${appConfig.notificationHubUrl}/api/images/${encodeURIComponent(imageId)}`, {
-      headers: createHubHeaders(),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const blob = await res.blob()
+    const blob = await ctx.transport.fetchImageBlob(imageId)
     const tiles = await buildImageTiles(blob)
     const ok = await ctx.glassesUI.showImage(ctx.connection, tiles)
     // BLE転送直後の画面遷移はホスト競合でクラッシュし得るため、戻る操作を短時間ブロック
@@ -118,7 +115,7 @@ export async function navigateToAskQuestion(ctx: AppContext, question: AskQuesti
   ctx.ui.updateNotifInfo()
 }
 
-/** 通知一覧画面に遷移し、状態をリセットして描画する */
+/** 通知一覧画面に遷移し、状態をリセットして描画する（絞り込みは維持する） */
 export async function returnToListScreen(ctx: AppContext): Promise<void> {
   ctx.notifState.screen = 'list'
   ctx.notifState.detailItem = null
@@ -127,7 +124,34 @@ export async function returnToListScreen(ctx: AppContext): Promise<void> {
   ctx.notifState.askQuestionIndex = 0
   ctx.notifState.askAnswers = {}
   if (ctx.connection) {
+    // 絞り込みは glassesUI 側の保持フィルタ（引数省略時の既定）を使って維持する
     await ctx.glassesUI.showNotificationList(ctx.connection, ctx.notifState.items)
+  }
+  ctx.ui.updateNotifInfo()
+}
+
+/** セッション別一覧（session-list）を開く。行モデルは開いた時点でスナップショットする。 */
+export async function openSessionList(ctx: AppContext): Promise<void> {
+  ctx.notifState.screen = 'session-list'
+  ctx.notifState.sessionListIndex = 0
+  const groups = buildSessionGroups(ctx.notifState.items, ctx.sessionActivities)
+  ctx.notifState.sessionGroups = groups
+  if (ctx.connection) {
+    await ctx.glassesUI.showSessionList(ctx.connection, groups)
+  }
+  ctx.ui.updateNotifInfo()
+}
+
+/** 指定フィルタで通知一覧（list）を開く。key=null で全件、非 null で絞り込み。 */
+export async function openListWithFilter(ctx: AppContext, filter: SessionFilter): Promise<void> {
+  ctx.notifState.sessionFilter = filter.key
+  ctx.notifState.sessionFilterLabel = filter.label
+  // 引数省略の再描画（SSE/telegram 経路）が同じフィルタを維持できるよう glassesUI 側にも反映
+  ctx.glassesUI.setListFilter(filter)
+  ctx.notifState.screen = 'list'
+  ctx.notifState.selectedIndex = 0
+  if (ctx.connection) {
+    await ctx.glassesUI.showNotificationList(ctx.connection, ctx.notifState.items, filter)
   }
   ctx.ui.updateNotifInfo()
 }

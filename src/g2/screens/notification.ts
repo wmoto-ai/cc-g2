@@ -15,15 +15,25 @@ import {
 import type { BridgeConnection } from '../../bridge'
 import type { NotificationItem, NotificationDetail } from '../../notifications'
 import { log } from '../../log'
+import { t, tp } from '../../i18n'
 import {
   formatCurrentDateTime,
   formatListItemName,
   paginateText,
 } from '../text-format'
+import {
+  SESSION_STATE_MARK,
+  ALL_FILTER,
+  filterItemsBySession,
+  formatSessionRow,
+  sessionShortName,
+  type SessionActivityLike,
+  type SessionFilter,
+  type SessionGroup,
+} from '../session-groups'
 import { createGhostListContainer, upgradeText, type RenderCore } from '../render-core'
 
-export type SessionActivityState = 'active' | 'idle' | 'error' | 'dead'
-type SessionActivityEntry = { tmuxTarget: string; label: string; state: SessionActivityState }
+type SessionActivityEntry = SessionActivityLike
 
 /** 通知アクションメニューの項目（index 直書きを避け id でディスパッチする） */
 export type NotificationAction = {
@@ -40,20 +50,20 @@ export function buildNotificationActions(detail: NotificationDetail): Notificati
   // 必ず失敗するため出さない。メニューを最小化して誤操作と行数を減らす
   if (hasImage && !hookType) {
     return [
-      { id: 'view-image', label: '画像を見る' },
-      { id: 'back', label: '◀ 戻る' },
+      { id: 'view-image', label: t('act_view_image') },
+      { id: 'back', label: t('act_back') },
     ]
   }
 
   const actions: NotificationAction[] = [
-    { id: 'comment', label: 'コメント' },
+    { id: 'comment', label: t('act_comment') },
     { id: 'approve', label: 'Approve' },
     { id: 'deny', label: 'Deny' },
   ]
   if (hasImage) {
-    actions.push({ id: 'view-image', label: '画像を見る' })
+    actions.push({ id: 'view-image', label: t('act_view_image') })
   }
-  actions.push({ id: 'back', label: '◀ 戻る' })
+  actions.push({ id: 'back', label: t('act_back') })
   return actions
 }
 
@@ -70,23 +80,10 @@ export function createNotificationScreens(
   } = core
 
   let currentSessionActivities: SessionActivityEntry[] = []
-
-  const SESSION_STATE_MARK: Record<SessionActivityState, string> = {
-    active: '▶',
-    idle: '○',
-    error: '!',
-    dead: 'X',
-  }
-
-  function sessionShortName(entry: SessionActivityEntry): string {
-    // "g2-cc-g2-4c4a:0.0" → "cc-g2" , "g2-minimalmem-246c:0.0" → "mm"
-    const session = entry.tmuxTarget.split(':')[0] || ''
-    const slug = session.replace(/^g2-/, '').replace(/-[0-9a-f]{4}$/, '')
-    // Truncate at word boundary, strip trailing hyphen
-    if (slug.length <= 5) return slug
-    const cut = slug.slice(0, 6).replace(/-$/, '')
-    return cut
-  }
+  // 現在の絞り込みフィルタ。引数省略の showNotificationList 再描画（SSE/telegram 等の
+  // 経路）が現在のフィルタを維持できるよう、setSessionActivities と同じくここに保持する。
+  // 変更点（フィルタ切替・全件リセット）は setListFilter で更新する。
+  let activeListFilter: SessionFilter = ALL_FILTER
 
   function formatSessionActivityHeader(): string {
     if (currentSessionActivities.length === 0) return ''
@@ -102,18 +99,34 @@ export function createNotificationScreens(
       currentSessionActivities = entries
     },
 
+    /** 通知一覧の絞り込みフィルタを設定する（引数省略の再描画で参照される） */
+    setListFilter(filter: SessionFilter): void {
+      activeListFilter = filter
+    },
+
     /**
      * G2に通知一覧を表示する（SDK標準ListContainer）
      * ※実機ではスクロール方向が物理操作と逆になる（ファームウェア仕様）
+     *
+     * 先頭に固定行「▸ Sessions」を置き（list index 0）、以降に通知を最大19件並べる。
+     * filter.key が非 null の場合はそのセッションキーで items を絞り込み、ヘッダに
+     * セッションラベルを表示する（items 自体は呼び出し側が全件を保持する）。
+     * イベント側は list index 0 = 固定行、index>=1 = 絞り込み後の items[index-1] で対応する。
      */
     async showNotificationList(
       conn: BridgeConnection,
       items: NotificationItem[],
+      filter: SessionFilter = activeListFilter,
     ): Promise<void> {
+      // 0件（全件）は従来どおり「通知なし」テキストに委譲する（idle→一覧の空表示経路）。
       if (items.length === 0) {
-        await showText(conn, '通知なし')
+        await showText(conn, t('notif_none'))
         return
       }
+
+      const displayItems = filterItemsBySession(items, filter.key)
+      // 固定行 + 19件 = 最大20行（§10 のリスト20件上限に収める）
+      const shownItems = displayItems.slice(0, 19)
 
       // 重要: 実機ファームは ListContainer + TextContainer 複数 の組み合わせを
       // silently 破棄する（createStartUp の戻り値は 0/1 を返すが描画されない）。
@@ -123,9 +136,11 @@ export function createNotificationScreens(
       // → ヘッダに時刻をインラインして TextContainer を1個に保つ。シミュレータは寛容で
       //    どちらでも描画してしまうので、ここを変更したら必ず実機で確認する。
       const activityPart = formatSessionActivityHeader()
-      const headerText = activityPart
-        ? `${activityPart} ${items.length}件 ${formatCurrentDateTime()}`
-        : `通知 ${items.length}件  ${formatCurrentDateTime()}`
+      const headerText = filter.key !== null
+        ? `${tp('sess_filter_header', { label: filter.label || filter.key })} ${tp('notif_count', { n: displayItems.length })} ${formatCurrentDateTime()}`
+        : activityPart
+          ? `${activityPart} ${tp('notif_count', { n: items.length })} ${formatCurrentDateTime()}`
+          : `${t('notif_word')} ${tp('notif_count', { n: items.length })}  ${formatCurrentDateTime()}`
       const titleContainer = new TextContainerProperty({
         xPosition: 8,
         yPosition: 8,
@@ -137,6 +152,7 @@ export function createNotificationScreens(
         isEventCapture: 0,
       })
 
+      const itemNames = [t('sess_entry'), ...shownItems.map(formatListItemName)]
       const listContainer = new ListContainerProperty({
         xPosition: 8,
         yPosition: 42,
@@ -145,10 +161,10 @@ export function createNotificationScreens(
         containerID: 2,
         containerName: 'notif-list',
         itemContainer: new ListItemContainerProperty({
-          itemCount: items.length,
+          itemCount: itemNames.length,
           itemWidth: 0,
           isItemSelectBorderEn: 1,
-          itemName: items.map(formatListItemName),
+          itemName: itemNames,
         }),
         isEventCapture: 1,
       })
@@ -159,7 +175,32 @@ export function createNotificationScreens(
         targetLayout: 'notif-list',
       })
       layoutByBridge.set(bridgeKeyOf(conn), 'notif-list')
-      log(`G2に通知一覧表示: ${items.length}件`)
+      log(`G2に通知一覧表示: ${shownItems.length}件 (filter=${filter.key ?? 'all'})`)
+    },
+
+    /**
+     * G2にセッション別一覧を表示する（header + ListContainer）。
+     * 各行は buildSessionGroups() が作る SessionGroup（状態マーク + ラベル + 件数）。
+     * イベント側は list index を sessionGroups[index] にそのまま対応させる（先頭が All 行）。
+     */
+    async showSessionList(conn: BridgeConnection, groups: SessionGroup[]): Promise<void> {
+      if (!conn.bridge) {
+        log(`[Mock] G2セッション一覧: ${groups.length}行`)
+        return
+      }
+      await renderHeaderListPage(conn, {
+        headerContainerName: 'sess-hdr',
+        headerYPosition: 8,
+        headerHeight: 28,
+        headerContent: `${t('sess_header')}  ${formatCurrentDateTime()}`,
+        listContainerName: 'sess-list',
+        listYPosition: 42,
+        listHeight: 232,
+        listItems: groups.map((g) => formatSessionRow(g)),
+        targetLayout: 'session-list',
+        layoutSet: 'session-list',
+      })
+      log(`G2にセッション一覧表示: ${groups.length}行`)
     },
 
     /**
@@ -271,7 +312,7 @@ export function createNotificationScreens(
         headerContainerName: 'notif-act-hdr',
         headerYPosition: 4,
         headerHeight: 52,
-        headerContent: `操作を選択\n${detail.title.length > 20 ? `${detail.title.slice(0, 19)}…` : detail.title}`,
+        headerContent: `${t('select_action')}\n${detail.title.length > 20 ? `${detail.title.slice(0, 19)}…` : detail.title}`,
         listContainerName: 'notif-act-lst',
         listYPosition: 58,
         listHeight: 210,

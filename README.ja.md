@@ -1,28 +1,52 @@
-# cc-g2 — Claude Code / Codex CLI を G2 から操作するスマートグラス連携
+# cc-g2 — Claude Code / Codex CLI / Copilot CLI を G2 から操作するスマートグラス連携
 
 [English README](./README.md)
 
-Even G2 と Claude Code / Codex CLI をつなぎ、承認・拒否・音声コメント・完了通知確認をグラスから行うためのハンズフリー companion layer です。PC の前にいなくても、iPhone 経由で G2 から agent の permission request に応答できます。
+Even G2 と Claude Code / Codex CLI / Copilot CLI をつなぎ、承認・拒否・音声コメント・完了通知確認をグラスから行うためのハンズフリー companion layer です。PC の前にいなくても、iPhone 経由で G2 から agent の permission request に応答できます。
 
 ![cc-g2 simulator demo](./docs/screenshots/cc-g2-simulator.gif)
 
-Even G2 で通知を開き、音声で返答し、その内容を Claude Code や Codex CLI に返す流れをシミュレーターで確認できます。
+Even G2 で通知を開き、音声で返答し、その内容を Claude Code / Codex CLI / Copilot CLI に返す流れをシミュレーターで確認できます。
 
 ## できること
 
-- **承認 / 拒否**: Claude Code / Codex CLI の tool permission request に G2 から応答
+- **承認 / 拒否**: Claude Code / Codex CLI / Copilot CLI の tool permission request に G2 から応答
 - **AskUserQuestion への回答**: Claude Code の質問に、G2 の選択肢リストから回答
 - **音声コメント**: 拒否時に音声で指示を返す
-- **完了通知の確認**: Claude Code / Codex CLI の完了通知を G2 で確認
+- **完了通知の確認**: Claude Code / Codex CLI / Copilot CLI の完了通知を G2 で確認
 - **通知一覧 / 詳細表示**: G2 で最近の通知を確認
 - **画像表示**: Claude Code / Codex CLI から送った画像・スクリーンショットを G2 のレンズに表示（`scripts/g2-send-image.sh`、使い方プロンプトは起動時に両 CLI へ自動注入）
 - **音声でセッション起動**: G2 に話しかけて Claude Code / Codex CLI セッションを起動（Even App カスタム AI 連携）
+
+## 対応 CLI
+
+cc-g2 は Claude Code / Codex CLI / Copilot CLI に対応しています。CLI によって使えるフック方式や機能が一部異なります。
+
+| | Claude Code | Codex CLI | Copilot CLI |
+|---|---|---|---|
+| 起動 | `cc-g2` | `cc-g2 codex` | `cc-g2 copilot` |
+| フック方式 | HTTP hook（`--settings`） | command hook（`-c hooks=`） | hooks JSON（`$COPILOT_HOME/hooks/cc-g2.json`） |
+| 承認 / 拒否（G2・Telegram） | ✅ | ✅ | ✅ |
+| AskUserQuestion 回答 | ✅ | — | — |
+| 完了通知 | ✅ | ✅ | ✅ |
+| 返信リレー（tmux / herdr キー注入） | ✅ | ✅ | ✅ |
+| ローカル決着検知（PostToolUse） | ✅ | ✅（auto_review 含む） | ✅ |
+| 音声セッション起動（Voice Entry） | ✅ | ✅ | — |
+| BYOK（ローカルモデル） | — | — | ✅（`COPILOT_PROVIDER_*`） |
+
+- **ローカル決着検知**: ターミナルでの手動承認や、codex の `approvals_reviewer=auto_review` による自動承認を PostToolUse フックで検知し、Hub の承認を自動解決します（Telegram のボタンが閉じ、G2 の表示も更新されます）。
+- **画像表示**（「できること」参照）は Claude Code / Codex CLI のみ対応です（Copilot CLI にはプロンプト注入の手段がないため）。
+- Copilot CLI のローカル決着検知は実装済みですが、実機未検証です。
 
 ## 既知の制限
 
 G2 表示制限、リスト操作の挙動、シミュレーターと実機の差異については [docs/known-limitations.md](docs/known-limitations.md) を参照してください。
 
 ## 構成
+
+cc-g2 には 2 つのトランスポートモードがあります。
+
+**hub モード**（自宅 / 同一 LAN / Tailscale — 開発・QR 起動・サイドロード向け）:
 
 ```text
 ┌──────────────┐   Tailscale    ┌──────────────┐   BLE    ┌─────────┐
@@ -33,12 +57,34 @@ G2 表示制限、リスト操作の挙動、シミュレーターと実機の�
 └──────────────┘               └──────────────┘          └─────────┘
 ```
 
+**telegram モード**（外出先 / Store 配布版の主経路 — Hub や Tailscale への到達性がなくても動く）:
+
+```text
+┌──────────────┐   Bot API    ┌──────────┐  MTProto  ┌──────────────┐   BLE    ┌─────────┐
+│ Mac アダプタ  │ ◄─────────► │ Telegram │ ◄───────► │ iPhone       │ ◄──────► │ Even G2 │
+│ cc-tg bot    │              │          │ (userbot) │ Even App +   │          │         │
+│ Hub 購読      │              │          │           │ cc-g2 WebView│          │         │
+└──────────────┘              └──────────┘           └──────────────┘          └─────────┘
+```
+
 - **Notification Hub** (`:8787`): 通知と承認の中央管理
 - **Vite** (`:5173`): G2 向け Web UI
 - **Voice Entry** (`:8797`): 音声セッション起動（オプション）
-- **Claude Code HTTP hook / Codex command hook**: PermissionRequest を Hub に送信
+- **各 CLI のフック**（Claude Code: HTTP hook / Codex CLI: command hook / Copilot CLI: hooks JSON）: PermissionRequest を Hub に送信
+- **Telegram アダプタ**: Hub を購読して Telegram に承認 UI・通知・画像を届ける常駐アダプタ → [packages/telegram-adapter](packages/telegram-adapter/README.md)
+
+> ホスト / ポート（Hub・Vite の `0.0.0.0` bind、`:8787` / `:5173` / `:8797`）は環境変数（`HUB_PORT` / `VITE_PORT` / `CC_G2_VOICE_ENTRY_PORT` 等）で上書きできます。
 
 Hub は明示的な permission prompt を中継して応答するためのもので、Claude Code / Codex CLI のユーザー設定や組織ポリシーを上書きして独自に広く許可するものではありません。
+
+### モードの使い分け
+
+| モード | 用途 | 到達性の前提 |
+|------|------|------------|
+| **hub** | 自宅 / dev、QR 起動、サイドロード | iPhone → Mac（同一 LAN / Tailscale） |
+| **telegram** | 外出先、Even Hub Store 配布版の主経路 | Telegram（Hub / Tailscale 不要） |
+
+telegram モードは、Hub や Tailscale への到達性がなくても G2 体験（通知一覧・詳細・承認・音声コメント・画像）を Telegram 経由で成立させます。セットアップは [Telegram adapter README](packages/telegram-adapter/README.md) を参照してください。Telegram の bot チャットは E2E 暗号化ではなく、ミニアプリの Telegram セッションは Even App のローカルストレージに保存されるため、2FA を有効にしたエージェント専用アカウントを推奨します。
 
 ## 推奨構成
 
@@ -60,6 +106,7 @@ Hub は明示的な permission prompt を中継して応答するためのもの
 - **Tailscale**（`SHOW_QR=0` で省略可）
 - **Claude Code** (`claude` コマンド)
 - **Codex CLI** (`codex` コマンド、`cc-g2 --codex` / `cc-g2 codex` 利用時のみ)
+- **GitHub Copilot CLI** (`copilot` コマンド、`cc-g2 --copilot` / `cc-g2 copilot` 利用時のみ)
 
 > `cc-g2` は trusted network 前提です。インターネット公開向けではありません。
 
@@ -127,6 +174,18 @@ cc-g2 codex
 
 この場合は Codex CLI の hook を注入し、Codex CLI を G2 hook 付きで起動します。
 
+Copilot CLI で起動する場合:
+
+```bash
+cc-g2 --copilot
+# または
+cc-g2 copilot
+```
+
+この場合は GitHub Copilot CLI の hook（`$COPILOT_HOME/hooks/cc-g2.json`）を用意し、Copilot CLI を G2 hook 付きで起動します。ローカルモデル（BYOK）を使う場合は `COPILOT_MODEL` / `COPILOT_PROVIDER_*` を環境に設定しておくと、copilot モードの tmux セッションにのみ伝播します。
+
+> **初回起動時の注意**: Copilot CLI はフォルダの trust 確認が TUI に出るので、承認するとフック（G2 承認・通知）が有効になります。Codex CLI も hooks 構成を変更した直後の初回起動で「Hooks need review」の確認が一度出るので、承認してください。
+
 ### 4. 最初の確認
 
 - `command -v cc-g2`
@@ -145,6 +204,9 @@ cc-g2 codex
 | `cc-g2 codex` | `cc-g2 --codex` と同じ |
 | `cc-g2 --native-codex` | `cc-g2 --codex` の互換エイリアス |
 | `cc-g2-codex` | `cc-g2 --codex` のエイリアス |
+| `cc-g2 --copilot` | インフラ起動 + QR 表示 + GitHub Copilot CLI を G2 hook 付きで起動 |
+| `cc-g2 copilot` | `cc-g2 --copilot` と同じ |
+| `cc-g2-copilot` | `cc-g2 --copilot` のエイリアス |
 | `cc-g2 !` | インフラ再起動してから起動 |
 | `cc-g2 stop` | Hub + Vite を停止 |
 | `cc-g2 status` | 起動状況を確認 |
@@ -215,17 +277,23 @@ Claude Code が `AskUserQuestion` を出した場合、cc-g2 は通常の通知�
 ## 承認の流れ
 
 ```text
-Claude Code / Codex CLI ─ PermissionRequest hook ─► Hub
-     │                                              │
-     │                                   通知 / 承認待ちを作成
-     │                                              │
-     │◄──────────── 承認 / 拒否 / コメント ─────── G2
+Claude Code / Codex CLI / Copilot CLI ─ PermissionRequest hook ─► Hub
+     │                                                            │
+     │                                             通知 / 承認待ちを作成
+     │                                                            │
+     │◄──────────────── 承認 / 拒否 / コメント ─────────────── G2
 ```
 
-- **承認**: Claude Code / Codex CLI がそのまま実行
-- **拒否**: Claude Code / Codex CLI が中止
+- **承認**: Claude Code / Codex CLI / Copilot CLI がそのまま実行
+- **拒否**: Claude Code / Codex CLI / Copilot CLI が中止
 - **コメント**: 拒否 + 指示テキストとして返却
 - **Hub 未起動**: agent 側の通常 UI / エラー処理へフォールバック
+
+### 承認モード（nonblocking / longpoll）
+
+既定は **nonblocking** です。フックは即座に応答し、CLI 側のダイアログがそのまま表示されます。G2 / Telegram での決定は tmux / herdr のキー注入で CLI に届き、ローカルとリモートで先に決めた方が優先されます。ターミナルでの手動承認や codex の auto_review でローカル決着した場合は、PostToolUse 検知で Hub の承認が自動解決され、Telegram のボタンが閉じて G2 の表示も更新されます。ターン終了時に未実行のまま残った承認は「実行されず終了」として掃除されます。
+
+`.env.local` に `CC_G2_APPROVAL_MODE=longpoll` を設定すると、旧挙動（フックが決定を待つブロッキング）に戻せます。切り替えには Hub の再起動（`cc-g2 !`）が必要です。
 
 ## 音声セッション起動 (Voice Entry)
 
@@ -270,7 +338,7 @@ cc-g2 status
 
 ### 使い方
 
-「Hey Even, cc-g2 private のテスト直して」のように話しかけると:
+「Hey Even, cc-g2 のテスト直して」のように話しかけると:
 1. Even App が音声→テキスト変換
 2. リポジトリを自動判定して新しいセッションを起動
 3. 結果は G2 通知で確認
@@ -379,6 +447,7 @@ cc-g2/
 - **Even App から接続できない**: `cat tmp/voice-entry/voice-entry-token` でトークンを確認。Even App の Bearer トークンと一致しているか、Tailscale で iPhone → Mac に到達できるかも確認
 - **設定変更が反映されない**: `cc-g2 !` でインフラを再起動。tmux セッション外からは `cc-g2 stop && cc-g2`
 - **Hub の履歴ファイルが肥大化した**: `tmp/notification-hub/*.jsonl` は無期限に追記されます。`cc-g2 stop` してから `node scripts/prune-hub-history.mjs --dry-run` で削減量を確認し、`node scripts/prune-hub-history.mjs`（デフォルト14日保持、実行前に自動バックアップ）で間引けます
+- **診断ログを見たい**: URL パラメータ `?logmirror=1`（またはビルド時 `VITE_LOG_MIRROR`）で info レベルのログを画面にミラーできます。**診断用途のみ・常用は禁止**です（ログ量が増え、機密情報を画面に映す可能性があります）
 
 ## Acknowledgments
 

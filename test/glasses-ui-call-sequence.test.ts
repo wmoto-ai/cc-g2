@@ -97,7 +97,7 @@ function makeItems(): NotificationItem[] {
       id: 'n1',
       source: 'claude-code',
       title: 'Bash',
-      summary: 'Tool: Bash CWD: /Users/x $ pnpm test --run',
+      summary: 'Tool: Bash CWD: /work/project $ pnpm test --run',
       createdAt: new Date(FIXED_NOW.getTime() - 30_000).toISOString(), // now
       replyCapable: true,
       replyStatus: 'pending',
@@ -107,11 +107,11 @@ function makeItems(): NotificationItem[] {
       id: 'n2',
       source: 'claude-code',
       title: 'Edit',
-      summary: 'Tool: Edit /home/user/repos/cc-g2/src/glasses-ui.ts',
+      summary: 'Tool: Edit /work/cc-g2/src/glasses-ui.ts',
       createdAt: new Date(FIXED_NOW.getTime() - 5 * 60_000).toISOString(), // 5m
       replyCapable: true,
       replyStatus: 'delivered',
-      metadata: { cwd: '/home/user/repos/very-long-project-name-here', tmuxTarget: 'g2-myrepo-1a2b-2:0.0' },
+      metadata: { cwd: '/work/very-long-project-name-here', tmuxTarget: 'g2-myrepo-1a2b-2:0.0' },
     },
     {
       id: 'n3',
@@ -295,6 +295,49 @@ describe('showNotificationList', () => {
     const { conn, calls } = createMockConn()
     const ui = createGlassesUI()
     await ui.showNotificationList(conn, [])
+    expect(calls).toMatchSnapshot()
+  })
+
+  it('先頭に固定行「▸ Sessions」が入り、通知は最大19件', async () => {
+    const { conn, calls } = createMockConn()
+    const ui = createGlassesUI()
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      ...makeItems()[0], id: `m${i}`, title: `T${i}`,
+    }))
+    await ui.showNotificationList(conn, many)
+    const payload = calls[0].payload as { listObject: Array<{ itemContainer: { itemName: string[]; itemCount: number } }> }
+    const names = payload.listObject[0].itemContainer.itemName
+    expect(names[0]).toBe('▸ セッション')
+    expect(names.length).toBe(20) // 固定行 + 19件
+  })
+
+  it('sessionFilter 指定時は絞り込み + ヘッダにセッションラベル', async () => {
+    const { conn, calls } = createMockConn()
+    const ui = createGlassesUI()
+    // makeItems の deriveSessionKey: n1(sessionLabel=#2) と n2(tmux→#2) が '#2'、
+    // n3(moshi)/n4([REDACTED]) は 'other'。#2 で絞ると n1・n2 の2件。
+    await ui.showNotificationList(conn, makeItems(), { key: '#2', label: 'cc-g2' })
+    const payload = calls[0].payload as {
+      textObject: Array<{ content: string }>
+      listObject: Array<{ itemContainer: { itemName: string[] } }>
+    }
+    expect(payload.textObject[0].content).toContain('cc-g2')
+    const names = payload.listObject[0].itemContainer.itemName
+    expect(names[0]).toBe('▸ セッション')
+    expect(names).toHaveLength(3) // 固定行 + n1 + n2
+    expect(calls).toMatchSnapshot()
+  })
+})
+
+describe('showSessionList', () => {
+  it('All 行 + セッション行を header/list payload に固定する', async () => {
+    const { conn, calls } = createMockConn()
+    const ui = createGlassesUI()
+    await ui.showSessionList(conn, [
+      { key: null, label: 'すべて', state: null, count: 4 },
+      { key: '#1', label: 'cc-g2', state: 'active', count: 2 },
+      { key: '#2', label: '#2', state: null, count: 1 },
+    ])
     expect(calls).toMatchSnapshot()
   })
 })

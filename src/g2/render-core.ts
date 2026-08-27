@@ -36,7 +36,7 @@ import { LIST_ITEM_MAX_BYTES, truncateByBytes } from './text-format'
 // updateImageRawData がハングすると renderLock が解放されず全UIが固まるため必須。
 export const IMAGE_TILE_TIMEOUT_MS = 10000
 
-export type LayoutName = 'base' | 'text' | 'idle-launcher' | 'approval' | 'notif-list' | 'notif-detail' | 'notif-actions' | 'image-detail' | 'ask-question' | 'reply-recording' | 'reply-confirm-actions' | 'reply-result'
+export type LayoutName = 'base' | 'text' | 'idle-launcher' | 'approval' | 'notif-list' | 'session-list' | 'notif-detail' | 'notif-actions' | 'image-detail' | 'ask-question' | 'reply-recording' | 'reply-confirm-actions' | 'reply-result'
 
 export type HeaderListPageOptions = {
   headerContainerName: string

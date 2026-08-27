@@ -89,6 +89,85 @@ resolve_repo_roots() {
   resolve_env_var "CC_G2_REPO_ROOTS" "CC_G2_REPO_ROOTS" "$G2_PROJECT_DIR" "${HOME}/Repos"
 }
 
+# ─── Telegram adapter 設定解決 ──────────────────────────────────
+
+resolve_tg_env_file_path() {
+  local env_file
+  env_file="$(resolve_env_var "CC_TG_BOT_ENV_FILE" "CC_TG_BOT_ENV_FILE" "$G2_PROJECT_DIR")"
+  if [ -n "$env_file" ]; then
+    case "$env_file" in
+      /*) printf '%s' "$env_file" ;;
+      *) printf '%s/%s' "$G2_PROJECT_DIR" "$env_file" ;;
+    esac
+    return
+  fi
+  printf '%s/packages/telegram-adapter/.env' "$G2_PROJECT_DIR"
+}
+
+read_tg_env_file_var() {
+  local key="$1"
+  local env_file
+  env_file="$(resolve_tg_env_file_path)"
+  read_env_file_var "$env_file" "$key" || true
+}
+
+resolve_tg_adapter_enabled() {
+  local env_file
+  env_file="$(resolve_tg_env_file_path)"
+
+  local allowed
+  allowed="$(resolve_env_var "TELEGRAM_ALLOWED_USER_IDS" "TELEGRAM_ALLOWED_USER_IDS" "$G2_PROJECT_DIR")"
+  if [ -z "$allowed" ] && [ -f "$env_file" ]; then
+    allowed="$(read_env_file_var "$env_file" "TELEGRAM_ALLOWED_USER_IDS" || true)"
+  fi
+  if [ -z "$allowed" ]; then
+    printf '0'
+    return
+  fi
+  if [ -f "$env_file" ] && [ -n "$(read_env_file_var "$env_file" "TELEGRAM_BOT_TOKEN" || true)" ]; then
+    printf '1'
+    return
+  fi
+  local token
+  token="$(resolve_env_var "TELEGRAM_BOT_TOKEN" "TELEGRAM_BOT_TOKEN" "$G2_PROJECT_DIR")"
+  if [ -n "$token" ]; then
+    printf '1'
+    return
+  fi
+  if [ -f "${G2_PROJECT_DIR}/packages/telegram-adapter/.env" ]; then
+    printf '1'
+    return
+  fi
+  printf '0'
+}
+
+resolve_tg_bot_token() {
+  local value
+  value="$(resolve_env_var "TELEGRAM_BOT_TOKEN" "TELEGRAM_BOT_TOKEN" "$G2_PROJECT_DIR")"
+  [ -n "$value" ] || value="$(read_tg_env_file_var "TELEGRAM_BOT_TOKEN")"
+  printf '%s' "$value"
+}
+
+resolve_tg_allowed_user_ids() {
+  local value
+  value="$(resolve_env_var "TELEGRAM_ALLOWED_USER_IDS" "TELEGRAM_ALLOWED_USER_IDS" "$G2_PROJECT_DIR")"
+  [ -n "$value" ] || value="$(read_tg_env_file_var "TELEGRAM_ALLOWED_USER_IDS")"
+  printf '%s' "$value"
+}
+
+resolve_tg_chat_id() {
+  local value
+  value="$(resolve_env_var "TELEGRAM_CHAT_ID" "TELEGRAM_CHAT_ID" "$G2_PROJECT_DIR")"
+  [ -n "$value" ] || value="$(read_tg_env_file_var "TELEGRAM_CHAT_ID")"
+  printf '%s' "$value"
+}
+
+resolve_tg_bot_env_file() {
+  local env_file
+  env_file="$(resolve_tg_env_file_path)"
+  [ -f "$env_file" ] && printf '%s' "$env_file"
+}
+
 # ─── トークンの再読込 ────────────────────────────────────────
 
 refresh_hub_auth_token() {

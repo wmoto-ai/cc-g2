@@ -16,6 +16,10 @@ const CASES = [
   'g2-myrepo-1a2b-2:0.0', // ハッシュ+連番 → #2
   'g2-myrepo-1a2b-12:0.0', // 2桁連番 → #12
   'g2-minimalmem-246c:0.0', // ハッシュのみ → #1
+  'g2-demo-abcd-codex:0.0', // codex サフィックス → #1
+  'g2-demo-abcd-codex-2:0.0', // codex + 連番 → #2
+  'g2-demo-abcd-copilot:0.0', // copilot サフィックス → #1
+  'g2-demo-abcd-copilot-2:0.0', // copilot + 連番 → #2
   'plain-session:0.0', // ハッシュなし → ''
   'g2-foo-12345:0.0', // 5桁はハッシュではない → ''
   'no-colon-session', // window/pane なし

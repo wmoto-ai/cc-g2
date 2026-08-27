@@ -1,7 +1,7 @@
 {
   "name": "@wmoto-ai/cc-g2",
   "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": false,
   "type": "module",
   "bin": {
@@ -17,6 +17,11 @@
     "docs/screenshots/",
     "index.html",
     "mirror.html",
+    "packages/telegram-adapter/env.example",
+    "packages/telegram-adapter/package.json",
+    "packages/telegram-adapter/README.md",
+    "packages/telegram-adapter/scripts/",
+    "packages/telegram-adapter/src/",
     "scripts/",
     "server/",
     "src/",
@@ -34,17 +39,35 @@
     "voice-entry:dev": "node server/voice-entry/index.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run test/even-events.test.ts test/format-and-wav.test.ts test/paginate-text.test.ts test/glasses-ui-call-sequence.test.ts test/mirror-state.test.ts test/derive-session-label-cross.test.ts test/scripts-lib-pure.test.mjs test/grayscale-png.test.ts test/hub-approval-api.test.mjs test/hub-hook-endpoint.test.mjs test/hub-codex-hook.test.mjs test/hub-image-api.test.mjs test/hub-g2-display.test.mjs test/hub-location-api.test.mjs test/voice-entry.test.mjs",
+    "check:whitelist": "node scripts/check-network-whitelist.mjs",
+    "ehpk": "VITE_TRANSPORT=telegram vite build && pnpm check:whitelist && evenhub pack app.json dist -o cc-g2.ehpk",
+    "sim:telegram": "concurrently -n vite,sim -c blue,green \"vite\" \"wait-on http://localhost:5173 && evenhub-simulator 'http://localhost:5173/?transport=telegram' --automation-port 9898\"",
+    "test": "vitest run test/i18n.test.ts test/app-settings.test.ts test/package-distribution.test.ts test/even-events.test.ts test/format-and-wav.test.ts test/paginate-text.test.ts test/glasses-ui-call-sequence.test.ts test/session-groups.test.ts test/mirror-state.test.ts test/derive-session-label-cross.test.ts test/scripts-lib-pure.test.mjs test/tmux-target.test.mjs test/reply-relay-copilot.test.mjs test/reply-relay-herdr-copilot.test.mjs test/reply-relay-codex.test.mjs test/reply-relay-claude.test.mjs test/copilot-tmux-env-gate.test.mjs test/grayscale-png.test.ts test/telegram-model.test.ts test/hub-approval-api.test.mjs test/hub-hook-endpoint.test.mjs test/hub-codex-hook.test.mjs test/hub-copilot-hook.test.mjs test/hub-nonblocking-approval.test.mjs test/hub-tool-executed.test.mjs test/reply-relay-precheck.test.mjs test/hub-image-api.test.mjs test/hub-g2-display.test.mjs test/hub-location-api.test.mjs test/hub-malformed-path.test.mjs test/hub-session-activity-herdr.test.mjs test/session-activity-panes.test.mjs test/hub-token-resolution.test.mjs test/voice-entry.test.mjs",
     "test:all": "vitest run",
     "test:watch": "vitest",
     "release": "npm version patch && pnpm publish && git push --follow-tags && gh release create \"v$(node -p \"require('./package.json').version\")\" --generate-notes"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.12",
+    "@grammyjs/auto-retry": "^2.0.2",
+    "@evenrealities/even_hub_sdk": "^0.0.9",
+    "buffer": "6.0.3",
+    "grammy": "^1.44.0",
+    "telegram": "2.26.22",
+    "tsx": "^4.19.0",
     "vite": "^8.1.5"
   },
   "devDependencies": {
+    "@evenrealities/evenhub-cli": "0.1.13",
+    "@evenrealities/evenhub-simulator": "0.7.3",
+    "concurrently": "10.0.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10"
+    "vite-plugin-node-polyfills": "0.28.0",
+    "vitest": "^4.1.10",
+    "wait-on": "9.0.10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

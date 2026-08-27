@@ -454,6 +454,8 @@ describe('Notification Hub — Permission Request HTTP Hook Endpoint', () => {
 
     const { data: healthBefore } = await getJson(hubBase, '/api/health')
     expect(healthBefore.pendingApprovals).toBeGreaterThanOrEqual(1)
+    // デフォルト（HUB_APPROVAL_MODE 未設定）は longpoll を報告する
+    expect(healthBefore.approvalMode).toBe('longpoll')
 
     // Approve and verify
     const { data: pendingData } = await getJson(hubBase, '/api/approvals')

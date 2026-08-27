@@ -1,5 +1,5 @@
 /**
- * G2 ミラー表示状態のワイヤ形式（Hub 経由配信用、plan/g2-mirror.md M2）
+ * G2 ミラー表示状態のワイヤ形式（Hub 経由配信用）。
  *
  * WebView → Hub への POST と、ビューア（mirror.html）が GET で受け取る JSON の
  * 変換のみを置く。PNG バイト列は base64 文字列にする（JSON 化のため）。

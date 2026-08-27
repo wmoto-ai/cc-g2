@@ -11,8 +11,13 @@
 
 input=$(cat)
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
+
 HUB_PORT="${HUB_PORT:-8787}"
-HUB_AUTH_TOKEN="${HUB_AUTH_TOKEN:-}"
+HUB_AUTH_TOKEN="$(resolve_hub_auth_token "$PROJECT_DIR")"
 ORIG_STATUSLINE_CMD="${CC_G2_ORIG_STATUSLINE_CMD:-}"
 
 # コンテキスト占有率をトークン数から計算（used_percentageは初期nullの場合があるため）

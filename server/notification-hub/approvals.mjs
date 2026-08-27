@@ -3,11 +3,12 @@
 // addNotification → markApprovalCleanup）だが、関数宣言のみの実行時呼び出しなので安全。
 import { randomUUID } from 'node:crypto'
 import { getString, persistedApproval } from './notification-utils.mjs'
-import { approvalsFile, hubPersistToolInput } from './config.mjs'
+import { approvalsFile, hubApprovalMode, hubPersistToolInput } from './config.mjs'
 import { store, appendJsonl, log } from './store.mjs'
 import { matchPathParam, sendJson, parseJsonBody } from './http-util.mjs'
 import { sseBroadcast, sseBroadcastNotificationAdded } from './sse.mjs'
 import { addNotification, notificationToListItem } from './notifications.mjs'
+import { relayApprovalInjection } from './relay.mjs'
 
 /** @typedef {import('./store.mjs').ApprovalRecord} ApprovalRecord */
 
@@ -97,17 +98,60 @@ function finalizeApproval(record, fields, logMessage) {
   return record
 }
 
-function resolveApproval(approvalId, decision, comment, decidedBy) {
+// options.skipInject: ローカル決着（PostToolUse 由来の tool-executed）では既にツールが
+// 実行済みでダイアログが無いため、キー注入を行わない（relay プロセスを起動しない）。
+function resolveApproval(approvalId, decision, comment, decidedBy, options = {}) {
   const record = approvalsById.get(approvalId)
   if (!record) return null
   if (record.status !== 'pending') return record
-  return finalizeApproval(record, {
+  const updated = finalizeApproval(record, {
     decision,
     resolution: undefined,
     comment: comment || undefined,
     decidedBy: decidedBy || undefined,
     decidedAt: new Date().toISOString(),
   }, `approval decided id=${record.id} decision=${decision} by=${decidedBy || 'unknown'}`)
+  if (!options.skipInject) maybeInjectApprovalDecision(updated, decision, comment, decidedBy)
+  return updated
+}
+
+// ノンブロッキングモードでは hook が既に {} を返して CLI のローカルダイアログが出ているため、
+// decide 時に reply-relay へ合成ペイロードを渡してキー注入し、ダイアログを閉じる。
+// longpoll モードでは hook 応答で決定が届くので何もしない（既定挙動不変）。
+// 対象は permission-request 承認のみ（AskUserQuestion 等の選択肢ダイアログは注入対象外）。
+function maybeInjectApprovalDecision(record, decision, comment, decidedBy) {
+  if (hubApprovalMode !== 'nonblocking') return
+  const notif = notificationsById.get(record.notificationId)
+  if (!notif) return
+  const hookType = notif.metadata && notif.metadata.hookType
+  if (hookType !== 'permission-request') return
+  const payload = {
+    reply: {
+      resolvedAction: decision,
+      action: decision,
+      comment: comment || '',
+      source: decidedBy || 'hub',
+    },
+    notification: {
+      id: notif.id,
+      title: notif.title,
+      summary: notif.summary,
+      metadata: notif.metadata,
+    },
+  }
+  relayApprovalInjection(payload)
+    .then((result) => {
+      // 注入成功時のみ deliveredAt を付ける（失敗時は付けない）
+      if (result && result.status === 'forwarded') {
+        record.deliveredAt = new Date().toISOString()
+      }
+      log(
+        `approval inject id=${record.id} decision=${decision} relay=${result ? result.status : 'unknown'}${result && result.error ? ` error=${result.error}` : ''}`,
+      )
+    })
+    .catch((err) =>
+      log(`approval inject error id=${record.id} ${err instanceof Error ? err.message : String(err)}`),
+    )
 }
 
 function markApprovalCleanup(record, resolution, decidedBy, decidedAt = new Date().toISOString()) {

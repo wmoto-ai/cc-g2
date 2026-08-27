@@ -1,5 +1,5 @@
 /**
- * G2 ミラービューア（mirror.html、plan/g2-mirror.md M2/M3）
+ * G2 ミラービューア（mirror.html）。
  *
  * Safari/PC から G2 表示のミラーを見る独立ページ。Hub へは同一 origin の
  * /api だけを叩く（Vite dev proxy 経由。HTTPS 化時の mixed content 対策）。

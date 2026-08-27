@@ -3,18 +3,46 @@ import { log } from '../log'
 
 export type TranscriptCallback = (text: string, isFinal: boolean) => void
 
+/** Soniox の WSS へ渡す API キーの取得方法(hub: 一時キー API / telegram: 設定画面のキー) */
+export type SonioxKeyProvider = () => Promise<string>
+
+/** Hub の一時キー発行 API(POST /api/stt/soniox-token)を使う keyProvider */
+export function createHubSonioxKeyProvider(hubUrl: string, hubHeaders: HeadersInit): SonioxKeyProvider {
+  return async () => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (hubHeaders instanceof Headers) {
+      hubHeaders.forEach((v, k) => { headers[k] = v })
+    } else if (Array.isArray(hubHeaders)) {
+      for (const [k, v] of hubHeaders) headers[k] = v
+    } else if (hubHeaders) {
+      Object.assign(headers, hubHeaders)
+    }
+
+    const res = await fetch(`${hubUrl}/api/stt/soniox-token`, { method: 'POST', headers })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Failed to get Soniox token: ${res.status} ${res.statusText} ${body}`.trim())
+    }
+    const json = (await res.json()) as { token: string; expiresAt?: string }
+    if (!json.token) {
+      throw new Error('Soniox token response missing "token" field')
+    }
+    log(`Soniox Realtime: temporary API key obtained (expires: ${json.expiresAt ?? 'unknown'})`)
+    return json.token
+  }
+}
+
 /**
  * Soniox Realtime STT client.
  *
- * Connects via WebSocket to Soniox's streaming transcription endpoint
- * using a temporary API key obtained from the Hub server.
+ * Connects via WebSocket to Soniox's streaming transcription endpoint.
+ * API キーの入手経路は keyProvider に注入する(hub の一時キー / 直接キー)。
  *
  * Audio: PCM 16kHz mono s16le — no resampling needed (unlike OpenAI which requires 24kHz).
  * Protocol: binary frames for audio, JSON for config/results.
  */
 export class SonioxRealtimeSTT {
-  private hubUrl: string
-  private hubHeaders: HeadersInit
+  private keyProvider: SonioxKeyProvider
   private ws: WebSocket | null = null
   private onTranscript: TranscriptCallback | null = null
   private finalText = ''
@@ -31,9 +59,8 @@ export class SonioxRealtimeSTT {
   private stopTimeout: ReturnType<typeof setTimeout> | null = null
   private pendingAudio: Uint8Array[] = []
 
-  constructor(hubUrl: string, hubHeaders: HeadersInit) {
-    this.hubUrl = hubUrl
-    this.hubHeaders = hubHeaders
+  constructor(keyProvider: SonioxKeyProvider) {
+    this.keyProvider = keyProvider
   }
 
   async start(onTranscript: TranscriptCallback): Promise<void> {
@@ -47,7 +74,7 @@ export class SonioxRealtimeSTT {
     this.aborted = false
     this.pendingAudio = []
 
-    const apiKey = await this.fetchTemporaryApiKey()
+    const apiKey = await this.keyProvider()
 
     const url = 'wss://stt-rt.soniox.com/transcribe-websocket'
     this.ws = new WebSocket(url)
@@ -165,37 +192,6 @@ export class SonioxRealtimeSTT {
   }
 
   // --- Private ---
-
-  private async fetchTemporaryApiKey(): Promise<string> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (this.hubHeaders) {
-      if (this.hubHeaders instanceof Headers) {
-        this.hubHeaders.forEach((v, k) => { headers[k] = v })
-      } else if (Array.isArray(this.hubHeaders)) {
-        for (const [k, v] of this.hubHeaders) headers[k] = v
-      } else {
-        Object.assign(headers, this.hubHeaders)
-      }
-    }
-
-    const res = await fetch(`${this.hubUrl}/api/stt/soniox-token`, {
-      method: 'POST',
-      headers,
-    })
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`Failed to get Soniox token: ${res.status} ${res.statusText} ${body}`.trim())
-    }
-
-    const json = (await res.json()) as { token: string; expiresAt?: string }
-    if (!json.token) {
-      throw new Error('Soniox token response missing "token" field')
-    }
-
-    log(`Soniox Realtime: temporary API key obtained (expires: ${json.expiresAt ?? 'unknown'})`)
-    return json.token
-  }
 
   private handleMessage(data: string | ArrayBuffer | Blob): void {
     if (typeof data !== 'string') return

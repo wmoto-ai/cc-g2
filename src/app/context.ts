@@ -15,8 +15,8 @@ import type { BridgeConnection } from '../bridge'
 import type { createGlassesUI, NotificationUIState, SessionActivityState } from '../glasses-ui'
 import type { createNotificationClient } from '../notifications'
 import type { WebSpeechSession } from '../stt/webspeech'
-import type { OpenAIRealtimeSTT } from '../stt/openai-realtime'
-import type { SonioxRealtimeSTT } from '../stt/soniox-realtime'
+import type { RealtimeStt, Transport } from '../transport/types'
+import type { TransportEventMessage } from './notification-events'
 import type { MirrorStore } from '../mirror/state'
 
 export type GlassesUI = ReturnType<typeof createGlassesUI>
@@ -51,10 +51,13 @@ export type AppUi = {
 export type AppContext = {
   // 単一所有のインスタンス（生成は main.ts で 1 回のみ）
   readonly glassesUI: GlassesUI
+  /** 外界(通知・画像・イベント・STT)への唯一の口(Phase A: hub / telegram) */
+  readonly transport: Transport
+  /** transport.notifications の別名(歴史的経緯。同一インスタンス) */
   readonly notifClient: NotificationClient
   readonly ui: AppUi
   // G2 ミラー（?mirror=1 時のみ main.ts が生成。null なら app/connect.ts は
-  // bridge 観測タップを配線しない。plan/g2-mirror.md 参照）
+  // bridge 観測タップを配線しない。
   readonly mirror: MirrorStore | null
 
   // --- 接続状態 ---【主な書き手: app/connect.ts】
@@ -83,7 +86,7 @@ export type AppContext = {
   replyAudioTotalBytes: number
   replyIsRecording: boolean
   replyStopInFlight: boolean
-  realtimeSTT: OpenAIRealtimeSTT | SonioxRealtimeSTT | null
+  realtimeSTT: RealtimeStt | null
 
   // --- G2 イベントルーティングのガード窓・保留イベント ---
   //【主な書き手: g2/event-router.ts（imageBackBlockedUntil のみ g2/flows.ts）】
@@ -125,18 +128,19 @@ export type AppContext = {
   // WebViewメインスレッドを取り合うのを避ける。描画自体は元々保留される設計のため、
   // イベントは捨てずに転送完了後へ繰り延べる。
   imageTransferQuiet: boolean
-  quietDeferredSse: MessageEvent[]
+  quietDeferredSse: TransportEventMessage[]
 }
 
 export function createAppContext(deps: {
   glassesUI: GlassesUI
-  notifClient: NotificationClient
+  transport: Transport
   ui: AppUi
   mirror?: MirrorStore | null
 }): AppContext {
   return {
     glassesUI: deps.glassesUI,
-    notifClient: deps.notifClient,
+    transport: deps.transport,
+    notifClient: deps.transport.notifications,
     ui: deps.ui,
     mirror: deps.mirror ?? null,
 
@@ -179,6 +183,10 @@ export function createAppContext(deps: {
       items: [],
       detailActions: [],
       selectedIndex: 0,
+      sessionFilter: null,
+      sessionFilterLabel: '',
+      sessionGroups: [],
+      sessionListIndex: 0,
       detailPages: [],
       detailPageIndex: 0,
       detailItem: null,

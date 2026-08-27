@@ -92,9 +92,11 @@ export function getString(val, defaultVal = '') {
   return typeof val === 'string' ? val.trim() : defaultVal
 }
 
-// 注意: src/g2/text-format.ts に同一ロジックのクライアント側実装がある
-// （ビルド境界が異なるため統合不可）。変更時は両方を揃えること。
-// 同一性は test/derive-session-label-cross.test.ts が監視している。
+// 注意: src/g2/text-format.ts と scripts/lib/common.sh(derive_session_label) に
+// 同一ロジックの実装がある（ビルド境界が異なるため統合不可）。変更時は 3 実装を
+// 揃えること。同一性は test/derive-session-label-cross.test.ts が監視している。
+// セッション名: g2-<slug>-<hash4>[-codex|-copilot][-N]。末尾 -N を剥がしてから
+// hash(+エージェント種別)終端を判定する。エージェント種別はラベルに含めない。
 export function deriveSessionLabel(tmuxTarget) {
   const target = getString(tmuxTarget)
   if (!target) return ''
@@ -103,9 +105,9 @@ export function deriveSessionLabel(tmuxTarget) {
   const numbered = session.match(/-(\d+)$/)
   if (numbered) {
     const prefix = session.slice(0, -numbered[0].length)
-    if (/-[0-9a-f]{4}$/.test(prefix)) return `#${numbered[1]}`
+    if (/-[0-9a-f]{4}(?:-codex|-copilot)?$/.test(prefix)) return `#${numbered[1]}`
   }
-  if (/-[0-9a-f]{4}$/.test(session)) return '#1'
+  if (/-[0-9a-f]{4}(?:-codex|-copilot)?$/.test(session)) return '#1'
   return ''
 }
 

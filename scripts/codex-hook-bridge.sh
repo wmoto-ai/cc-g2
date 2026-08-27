@@ -18,18 +18,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
+
 HUB_PORT="${HUB_PORT:-8787}"
 HUB_URL="${HUB_URL:-http://127.0.0.1:${HUB_PORT}}"
 CC_G2_TMUX_TARGET="${CC_G2_TMUX_TARGET:-}"
+CC_G2_TMUX_SESSION="${CC_G2_TMUX_SESSION:-}"
 
-# HUB_AUTH_TOKEN: 環境変数がなければトークンファイルから自動検出
-HUB_AUTH_TOKEN="${HUB_AUTH_TOKEN:-}"
-if [ -z "$HUB_AUTH_TOKEN" ]; then
-  TOKEN_FILE="${PROJECT_DIR}/tmp/notification-hub/hub-auth-token"
-  if [ -f "$TOKEN_FILE" ]; then
-    HUB_AUTH_TOKEN="$(cat "$TOKEN_FILE")"
-  fi
-fi
+HUB_AUTH_TOKEN="$(resolve_hub_auth_token "$PROJECT_DIR")"
 
 # jq が必要
 if ! command -v jq &>/dev/null; then
@@ -87,6 +84,10 @@ fi
 
 if [ -n "$CC_G2_TMUX_TARGET" ]; then
   CURL_ARGS+=(-H "X-Tmux-Target: ${CC_G2_TMUX_TARGET}")
+fi
+
+if [ -n "$CC_G2_TMUX_SESSION" ]; then
+  CURL_ARGS+=(-H "X-Tmux-Session: ${CC_G2_TMUX_SESSION}")
 fi
 
 CURL_ARGS+=(-d "$PAYLOAD")

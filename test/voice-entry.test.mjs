@@ -123,6 +123,8 @@ case "$cmd" in
         *) shift ;;
       esac
     done
+    echo x >> "$STATE_DIR/launch-count"
+    if [ -f "$STATE_DIR/launch-delay" ]; then sleep 1; fi
     base=$(basename "$workdir")
     suffix=""
     [ "$agent" = "codex" ] && suffix="-codex"
@@ -444,4 +446,39 @@ exec ${JSON.stringify(process.execPath)} ${JSON.stringify(claudeStub)} "$@"
     const data2 = await res2.json()
     expect(extractContent(data2)).not.toBe('')
   })
+
+  it('does not double-launch when identical requests arrive while one is still processing', async () => {
+    // 音声トリガーの二重発火を再現: 起動処理中（response 未確定）に同一内容が届く
+    await rm(path.join(stateDir, 'continue-ok'), { force: true })
+    await rm(path.join(stateDir, 'launch-count'), { force: true })
+    await writeFile(path.join(stateDir, 'launch-delay'), '1', 'utf8')
+
+    const headers = {
+      authorization: `Bearer ${TEST_TOKEN}`,
+      'content-type': 'application/json',
+    }
+    const body = JSON.stringify({
+      model: 'openclaw',
+      messages: [{ role: 'user', content: 'alpha tool の並行修正して' }],
+    })
+
+    try {
+      const [res1, res2] = await Promise.all([
+        fetch(`${base}/v1/chat/completions`, { method: 'POST', headers, body }),
+        fetch(`${base}/v1/chat/completions`, { method: 'POST', headers, body }),
+      ])
+      expect(res1.status).toBe(200)
+      expect(res2.status).toBe(200)
+      const [data1, data2] = await Promise.all([res1.json(), res2.json()])
+      expect(extractContent(data1)).not.toBe('')
+      expect(extractContent(data2)).toBe(extractContent(data1))
+
+      const count = (await readFile(path.join(stateDir, 'launch-count'), 'utf8'))
+        .split('\n')
+        .filter(Boolean).length
+      expect(count, 'launch-detached はちょうど1回だけ実行されるべき').toBe(1)
+    } finally {
+      await rm(path.join(stateDir, 'launch-delay'), { force: true })
+    }
+  }, 15000)
 })

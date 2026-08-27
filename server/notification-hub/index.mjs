@@ -7,6 +7,7 @@ import {
   port,
   dataDir,
   hubAuthToken,
+  hubApprovalMode,
   notificationsFile,
   repliesFile,
   clientEventsFile,
@@ -45,7 +46,7 @@ import {
 import { matchImagePath, loadStoredImages, handleImagePost, handleImageGet } from './images.mjs'
 import { handleG2DisplayPost, handleG2DisplayGet } from './g2-display.mjs'
 import { handleSseEvents } from './sse.mjs'
-import { handlePermissionRequestHook } from './hooks.mjs'
+import { handlePermissionRequestHook, handleToolExecutedHook } from './hooks.mjs'
 import { handleSttTranscription, handleSttRealtimeToken, handleSttSonioxToken } from './stt-routes.mjs'
 import { handleLocationPost, handleLocationGet } from './location.mjs'
 // session-activity モニター（tmux ポーリング interval）は import 時に起動する（従来挙動と同順）
@@ -80,7 +81,7 @@ const publicApiRoutes = new Set([
 function isPublicApiRequest(method, pathname) {
   if (publicApiRoutes.has(`${method} ${pathname}`)) return true
   if (method === 'GET' && matchNotificationDetail(pathname)) return true
-  // 画像 GET は通知詳細 GET と同じ公開扱い（trusted network 前提、plan/g2-image-display.md 参照）
+  // 画像 GET は通知詳細 GET と同じ公開扱い（trusted network 前提）
   if (method === 'GET' && matchImagePath(pathname)) return true
   return false
 }
@@ -129,6 +130,8 @@ async function bootstrap() {
 
 const server = createServer(async (req, res) => {
   const method = req.method || 'GET'
+  try {
+
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
   const pathname = url.pathname
 
@@ -145,12 +148,11 @@ const server = createServer(async (req, res) => {
     if (!requireApiAuth(req, res)) return
   }
 
-  try {
-
   if (method === 'GET' && pathname === '/api/health') {
     return sendJson(res, 200, {
       ok: true,
       service: 'notification-hub',
+      approvalMode: hubApprovalMode,
       notifications: notifications.length,
       replies: replies.length,
       approvals: approvals.length,
@@ -165,7 +167,15 @@ const server = createServer(async (req, res) => {
   }
 
   if (method === 'POST' && pathname === '/api/hooks/permission-request') {
-    return handlePermissionRequestHook(req, res)
+    // await が無いと async rejection が下の包括 catch を素通りし、
+    // 500 応答が返らずフックがタイムアウトまでハングする
+    return await handlePermissionRequestHook(req, res)
+  }
+
+  // PostToolUse hook: ローカル決着（ターミナル手動承認 / codex auto_review）検知。
+  // 該当 sessionId の pending 承認を approve 解決し、リモートのボタンを閉じる。
+  if (method === 'POST' && pathname === '/api/hooks/tool-executed') {
+    return await handleToolExecutedHook(req, res)
   }
 
 
@@ -186,7 +196,7 @@ const server = createServer(async (req, res) => {
     }
   }
 
-  // --- G2 ミラー表示状態 (plan/g2-mirror.md) ---
+  // --- G2 ミラー表示状態 ---
 
   if (method === 'POST' && pathname === '/api/g2-display') {
     return await handleG2DisplayPost(req, res)
@@ -371,8 +381,23 @@ const server = createServer(async (req, res) => {
     if (isBodyTooLargeError(err)) {
       return sendRequestBodyTooLarge(res, err)
     }
-    throw err
+    // 想定外の例外はリクエストを 500 で終端し、プロセスは落とさない
+    log(`request error: ${method} ${req.url || ''}: ${err && err.stack ? err.stack : err}`)
+    if (!res.headersSent) {
+      return sendJson(res, 500, { ok: false, error: 'Internal server error' })
+    }
+    res.destroy()
   }
+})
+
+// ハンドラ外（listen 前後・タイマー等）の取りこぼしを hub.log に残す。
+// unhandledRejection は継続、uncaughtException は Node の指針に従い
+// ログだけ残してプロセス終了に任せる（monitor はクラッシュを止めない）
+process.on('unhandledRejection', (reason) => {
+  log(`unhandledRejection: ${reason && reason.stack ? reason.stack : reason}`)
+})
+process.on('uncaughtExceptionMonitor', (err) => {
+  log(`uncaughtException: ${err && err.stack ? err.stack : err}`)
 })
 
 await bootstrap()

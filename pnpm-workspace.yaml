@@ -1,4 +1,14 @@
 minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - esbuild
+  - '@esbuild/*'
 
 packages:
   - .
+  - packages/telegram-adapter
+
+# GramJS(telegram)のブラウザ実行: Buffer クラスを単一化する(instanceof cross-fail 防止)
+overrides:
+  buffer: 6.0.3
+  # socks の許容範囲内で、SSRF分類バイパスを修正した最小バージョンへ固定。
+  ip-address: 10.3.1
