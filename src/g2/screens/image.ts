@@ -15,6 +15,7 @@ import {
 import type { BridgeConnection } from '../../bridge'
 import { IMAGE_TILES, IMAGE_TILE_DELAY_MS, IMAGE_SETTLE_DELAY_MS } from '../../image/image-pipeline'
 import { log } from '../../log'
+import { t } from '../../i18n'
 import { IMAGE_TILE_TIMEOUT_MS, upgradeText, type RenderCore } from '../render-core'
 
 export function createImageScreens(core: RenderCore) {
@@ -55,7 +56,7 @@ export function createImageScreens(core: RenderCore) {
           height: 288,
           containerID: 1,
           containerName: 'img-dtl-evt',
-          content: '\n\n\n\n　　　　　　　　画像を転送中...\n　　　　　　　　(完了まで操作しないでください)',
+          content: t('img_transferring'),
           isEventCapture: 1,
           paddingLength: 0,
         })
@@ -124,7 +125,7 @@ export function createImageScreens(core: RenderCore) {
           }
         }
         // 転送中インジケータを消す（失敗時はメッセージを残してユーザーに状態を知らせる）
-        await upgradeText(conn, 1, 'img-dtl-evt', allOk ? ' ' : '画像転送に失敗しました\nダブルタップで戻る')
+        await upgradeText(conn, 1, 'img-dtl-evt', allOk ? ' ' : t('img_transfer_failed'))
         log(`G2画像${allOk ? '表示完了' : '表示一部失敗'}: total=${Math.round(performance.now() - t0)}ms`)
         return allOk
       })

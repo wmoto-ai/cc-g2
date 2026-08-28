@@ -9,6 +9,7 @@
 import { TextContainerProperty, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
 import type { BridgeConnection } from '../../bridge'
 import { log } from '../../log'
+import { t } from '../../i18n'
 import { upgradeText, type RenderCore } from '../render-core'
 
 export type ApprovalRequest = {
@@ -98,7 +99,7 @@ export function createMiscScreens(core: RenderCore) {
         height: 272,
         containerID: 1,
         containerName: 'idle-touch',
-        content: dimMode ? ' ' : '待機中\n\nDblTap = 通知一覧',
+        content: dimMode ? ' ' : t('g2_idle'),
         isEventCapture: 1,
       })
 

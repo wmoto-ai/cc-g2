@@ -6,11 +6,10 @@
  * 録音停止〜STT〜確認画面遷移の本体は reply-recording 画面ハンドラ
  * （src/g2/event-router.ts）側にある。
  */
-import { appConfig, canUseOpenaiRealtimeStt, canUseSonioxStt, createHubHeaders } from '../config'
+import { appConfig } from '../config'
 import { log } from '../log'
+import { t } from '../i18n'
 import { errorMessage } from '../app/format'
-import { OpenAIRealtimeSTT } from '../stt/openai-realtime'
-import { SonioxRealtimeSTT } from '../stt/soniox-realtime'
 import type { NotificationDetail } from '../notifications'
 import type { AppContext } from '../app/context'
 
@@ -24,13 +23,12 @@ export async function startReplyRecording(ctx: AppContext): Promise<void> {
   ctx.replyStopInFlight = false
 
   // Start realtime STT if configured
-  if (canUseOpenaiRealtimeStt() || canUseSonioxStt()) {
+  const realtimeStt = ctx.transport.createRealtimeStt()
+  if (realtimeStt) {
     let realtimeCompleted = ''
     let realtimeDelta = ''
     try {
-      ctx.realtimeSTT = canUseSonioxStt()
-        ? new SonioxRealtimeSTT(appConfig.notificationHubUrl, createHubHeaders())
-        : new OpenAIRealtimeSTT(appConfig.notificationHubUrl, createHubHeaders())
+      ctx.realtimeSTT = realtimeStt
       await ctx.realtimeSTT.start((text, isFinal) => {
         if (isFinal) {
           realtimeCompleted += text
@@ -52,7 +50,7 @@ export async function startReplyRecording(ctx: AppContext): Promise<void> {
 
   await ctx.glassesUI.showReplyRecording(ctx.connection)
   if (ctx.connection.mode === 'bridge' && !ctx.glassesUI.hasRenderedPage(ctx.connection)) {
-    await ctx.glassesUI.ensureBasePage(ctx.connection, 'マイク録音中...')
+    await ctx.glassesUI.ensureBasePage(ctx.connection, t('mic_rec_base'))
   }
   await ctx.connection.startAudio()
   ctx.replyIsRecording = true
@@ -61,13 +59,13 @@ export async function startReplyRecording(ctx: AppContext): Promise<void> {
 
 export async function showReplyConfirmTextPage(ctx: AppContext): Promise<void> {
   if (!ctx.connection || !ctx.notifState.detailItem || !ctx.notifState.replyText) return
-  const confirmText = `${ctx.notifState.replyText}\n\n---\n送信・再録は最後までスクロール`
+  const confirmText = `${ctx.notifState.replyText}\n\n---\n${t('reply_confirm_scroll_hint')}`
   const pageCount = ctx.glassesUI.getDetailPageCount(confirmText)
   ctx.notifState.detailPageIndex = Math.max(0, Math.min(ctx.notifState.detailPageIndex, pageCount - 1))
   ctx.notifState.detailPages = Array.from({ length: pageCount }, (_, i) => String(i))
   const syntheticDetail: NotificationDetail = {
     ...ctx.notifState.detailItem,
-    title: '返信内容',
+    title: t('reply_content_title'),
     fullText: confirmText,
     replyCapable: true,
   }

@@ -23,5 +23,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm tsc --noEmit
+      - run: pnpm --filter @wmoto-ai/telegram-adapter typecheck
       - run: pnpm test
+      - run: pnpm --filter @wmoto-ai/telegram-adapter test
       - run: pnpm build

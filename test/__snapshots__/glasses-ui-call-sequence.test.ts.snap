@@ -570,6 +570,51 @@ exports[`showNotificationList > 0件は showText("通知なし") に委譲する
 ]
 `;
 
+exports[`showNotificationList > sessionFilter 指定時は絞り込み + ヘッダにセッションラベル 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [
+        {
+          "containerID": 2,
+          "containerName": "notif-list",
+          "height": 232,
+          "isEventCapture": 1,
+          "itemContainer": {
+            "isItemSelectBorderEn": 1,
+            "itemCount": 3,
+            "itemName": [
+              "▸ セッション",
+              "●cc-g2#2:Bash pnpm test --run (now)",
+              "○very-long…#2:Edit glasses-ui.ts (5m)",
+            ],
+            "itemWidth": 0,
+          },
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 42,
+        },
+      ],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "notif-header",
+          "content": "▸cc-g2 2件 6/10 Wed 12:00",
+          "height": 28,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 8,
+        },
+      ],
+    },
+  },
+]
+`;
+
 exports[`showNotificationList > セッションアクティビティがヘッダーに反映される 1`] = `
 [
   {
@@ -585,8 +630,9 @@ exports[`showNotificationList > セッションアクティビティがヘッダ
           "isEventCapture": 1,
           "itemContainer": {
             "isItemSelectBorderEn": 1,
-            "itemCount": 1,
+            "itemCount": 2,
             "itemName": [
+              "▸ セッション",
               "●cc-g2#2:Bash pnpm test --run (now)",
             ],
             "itemWidth": 0,
@@ -628,8 +674,9 @@ exports[`showNotificationList > 代表4種の通知で header/list payload を�
           "isEventCapture": 1,
           "itemContainer": {
             "isItemSelectBorderEn": 1,
-            "itemCount": 4,
+            "itemCount": 5,
             "itemName": [
+              "▸ セッション",
               "●cc-g2#2:Bash pnpm test --run (now)",
               "○very-long…#2:Edit glasses-ui.ts (5m)",
               ">M:タスク完了通知のとても… (3h)",
@@ -647,6 +694,51 @@ exports[`showNotificationList > 代表4種の通知で header/list payload を�
           "containerID": 1,
           "containerName": "notif-header",
           "content": "通知 4件  6/10 Wed 12:00",
+          "height": 28,
+          "isEventCapture": 0,
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 8,
+        },
+      ],
+    },
+  },
+]
+`;
+
+exports[`showSessionList > All 行 + セッション行を header/list payload に固定する 1`] = `
+[
+  {
+    "method": "createStartUpPageContainer",
+    "payload": {
+      "containerTotalNum": 2,
+      "imageObject": [],
+      "listObject": [
+        {
+          "containerID": 2,
+          "containerName": "sess-list",
+          "height": 232,
+          "isEventCapture": 1,
+          "itemContainer": {
+            "isItemSelectBorderEn": 1,
+            "itemCount": 3,
+            "itemName": [
+              "☰ すべて (4)",
+              "▶ cc-g2 (2)",
+              "· #2 (1)",
+            ],
+            "itemWidth": 0,
+          },
+          "width": 560,
+          "xPosition": 8,
+          "yPosition": 42,
+        },
+      ],
+      "textObject": [
+        {
+          "containerID": 1,
+          "containerName": "sess-hdr",
+          "content": "セッション  6/10 Wed 12:00",
           "height": 28,
           "isEventCapture": 0,
           "width": 560,

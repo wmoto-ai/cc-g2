@@ -1,11 +1,35 @@
 {
-  "package_id": "ai.wmoto.cc-g2",
-  "edition": "202602",
+  "package_id": "ai.wmoto.ccg2.telegram",
+  "edition": "202601",
   "name": "cc-g2",
   "version": "0.1.0",
-  "min_app_version": "0.1.0",
-  "tagline": "Even G2 voice-to-agent PoC",
-  "description": "Voice input and result display proof of concept for Even G2 smart glasses",
-  "author": "wmoto-ai",
-  "entrypoint": "index.html"
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.9",
+  "supported_languages": ["ja", "en"],
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "g2-microphone",
+      "desc": "承認・返信の音声コメントをグラスのマイクで録音し文字起こしする"
+    },
+    {
+      "name": "network",
+      "desc": "hub モード: ローカル Hub との通知同期。telegram モード: Telegram 経由の通知・承認と Soniox への音声ストリーム",
+      "whitelist": [
+        "wss://stt-rt.soniox.com",
+        "https://stt-rt.soniox.com",
+        "https://my.telegram.org",
+        "wss://pluto.web.telegram.org",
+        "wss://venus.web.telegram.org",
+        "wss://aurora.web.telegram.org",
+        "wss://vesta.web.telegram.org",
+        "wss://flora.web.telegram.org",
+        "https://pluto.web.telegram.org",
+        "https://venus.web.telegram.org",
+        "https://aurora.web.telegram.org",
+        "https://vesta.web.telegram.org",
+        "https://flora.web.telegram.org"
+      ]
+    }
+  ]
 }

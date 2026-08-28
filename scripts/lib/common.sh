@@ -68,6 +68,23 @@ resolve_bin() {
   printf '%s' "${current:-$fallback}"
 }
 
+# ─── Hub 認証トークン解決 ────────────────────────────────────
+
+# resolve_hub_auth_token <project_dir>
+#   Hub 再起動でトークンがローテートすると、セッション起動時に env へ焼き込まれた
+#   旧トークンのままフックが 401 になる（docs/hub-token-401-and-trust-gate.md）。
+#   Hub は常に同じ install tree のトークンファイルを正とするため、ファイルを env より
+#   優先する。HUB_AUTH_TOKEN_FILE でファイルパスを差し替え可能（テスト・別ポート運用）。
+resolve_hub_auth_token() {
+  local project_dir="$1"
+  local token_file="${HUB_AUTH_TOKEN_FILE:-${project_dir}/tmp/notification-hub/hub-auth-token}"
+  if [ -s "$token_file" ]; then
+    cat "$token_file"
+  else
+    printf '%s' "${HUB_AUTH_TOKEN:-}"
+  fi
+}
+
 # ─── tmux ターゲット解決 ─────────────────────────────────────
 
 resolve_tmux_target() {
@@ -76,11 +93,38 @@ resolve_tmux_target() {
     printf '%s' "$CC_G2_TMUX_TARGET"
     return 0
   fi
+  # フォールバックも pane 固有 ID（%N）。インデックス形式はペイン増減でズレる
   if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then
-    tmux display-message -p '#S:#I.#P' 2>/dev/null || true
+    tmux display-message -p '#{pane_id}' 2>/dev/null || true
   fi
 }
 
+# pane_alive <pane_id>
+#   tmux 3.6 は存在しないペイン target でも display-message が exit 0 + 空出力を
+#   返すため、exit code ではなく出力（pane_id の一致）で生存判定する。
+pane_alive() {
+  local pane="$1"
+  [ -n "$pane" ] || return 1
+  [ "$(tmux display-message -p -t "$pane" '#{pane_id}' 2>/dev/null)" = "$pane" ]
+}
+
+# resolve_tmux_session_name — セッションラベル導出用のセッション名を返す。
+# ターゲットが %N 形式になりセッション名を含まないため、別途この関数で解決する。
+resolve_tmux_session_name() {
+  if [ -n "${CC_G2_TMUX_SESSION:-}" ]; then
+    printf '%s' "$CC_G2_TMUX_SESSION"
+    return 0
+  fi
+  if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then
+    tmux display-message -p '#S' 2>/dev/null || true
+  fi
+}
+
+# セッション名: g2-<slug>-<hash4>[-codex|-copilot][-N]
+# 末尾の -N（明示サフィックス）を剥がしてから hash(+エージェント種別)終端を判定する。
+# エージェント種別はラベルに含めない（agentName メタデータが別途保持するため番号のみ）。
+# 注意: notification-utils.mjs / src/g2/text-format.ts に同一ロジックがある。変更時は
+# 3 実装を揃えること（test/derive-session-label-cross.test.ts が監視）。
 derive_session_label() {
   local target="$1"
   local session="${target%%:*}"
@@ -90,12 +134,12 @@ derive_session_label() {
   if [[ "$session" =~ -([0-9]+)$ ]]; then
     local suffix="${BASH_REMATCH[1]}"
     local prefix="${session%-${suffix}}"
-    if [[ "$prefix" =~ -[0-9a-f]{4}$ ]]; then
+    if [[ "$prefix" =~ -[0-9a-f]{4}(-codex|-copilot)?$ ]]; then
       printf '#%s' "$suffix"
       return 0
     fi
   fi
-  if [[ "$session" =~ -[0-9a-f]{4}$ ]]; then
+  if [[ "$session" =~ -[0-9a-f]{4}(-codex|-copilot)?$ ]]; then
     printf '#1'
   fi
 }
@@ -158,6 +202,32 @@ extract_last_assistant_text() {
       jq -r '.message.content[]? | select(.type=="text") | .text // empty' 2>/dev/null)
   fi
 
+  printf '%s' "$msg"
+}
+
+# Copilot CLI の events.jsonl から最後のアシスタント応答テキストを抽出する。
+# Copilot は 1 行 1 JSON で type == "assistant.message" の .data.content に応答本文を
+# 入れる（tool 呼び出しのみのターンは content が空文字）。最後の非空 content を返す。
+extract_last_copilot_assistant_text() {
+  local path="$1"
+  [ -f "$path" ] || return 0
+
+  local msg
+  msg=$(tail -n 4000 "$path" | jq -Rsr '
+    [split("\n")[] | fromjson? | select(type == "object")] as $events
+    | [$events | to_entries[] | select(.value.type == "assistant.turn_start") | .key] as $starts
+    | (if ($starts | length) > 0 then ($starts | last) else 0 end) as $last_start
+    | [$events[$last_start:][]
+        | select(.type == "assistant.message"
+            and (.data.content | type) == "string"
+            and .data.content != "")
+        | .data.content]
+    | join("\n")
+  ' 2>/dev/null)
+
+  if [ -z "$msg" ] || [ "$msg" = "null" ]; then
+    msg=""
+  fi
   printf '%s' "$msg"
 }
 
@@ -231,6 +301,35 @@ post_notification_payload() {
       done
     } >> "$error_log_file" 2>/dev/null || true
   fi
+}
+
+# ─── タイムアウト付き実行 ────────────────────────────────────
+
+# run_with_timeout <secs> <cmd...>
+#   timeout / gtimeout があればそれを使う。macOS 標準環境にはどちらも無いため、
+#   その場合はバックグラウンド実行 + 監視プロセスで打ち切る。
+run_with_timeout() {
+  local secs="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+    return
+  fi
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$secs" "$@"
+    return
+  fi
+  "$@" &
+  local cmd_pid=$!
+  (
+    sleep "$secs"
+    kill "$cmd_pid" 2>/dev/null
+  ) &
+  local watchdog_pid=$!
+  local rc=0
+  wait "$cmd_pid" 2>/dev/null || rc=$?
+  kill "$watchdog_pid" 2>/dev/null || true
+  return "$rc"
 }
 
 # ─── 起動待ちループ ──────────────────────────────────────────

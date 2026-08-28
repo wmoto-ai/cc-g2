@@ -36,6 +36,15 @@ const hubReplyRelaySources = new Set(
     .map((s) => s.trim())
     .filter(Boolean),
 )
+// 承認フックの応答モード。
+//   longpoll（デフォルト）: hook を最大 600 秒待たせ、decide 結果を hook 応答で返す。
+//   nonblocking: hook を待たせず即 {} を返して CLI のローカルダイアログを出し、後から
+//     decide 時に reply-relay でキー注入する（承認レコードは pending のまま残す）。
+// 既定挙動を変えないため、明示的に "nonblocking" を指定したときのみ切り替える。
+const hubApprovalMode =
+  String(process.env.HUB_APPROVAL_MODE || '').toLowerCase() === 'nonblocking'
+    ? 'nonblocking'
+    : 'longpoll'
 const hubPermissionThreadDedupMs = parseIntEnv('HUB_PERMISSION_THREAD_DEDUP_MS', 8000, 0)
 const hubMaxBodyBytes = parseIntEnv('HUB_MAX_BODY_BYTES', 1048576, 1024)
 const hubMaxSttBodyBytes = Math.max(hubMaxBodyBytes, parseIntEnv('HUB_MAX_STT_BODY_BYTES', 12582912))
@@ -69,6 +78,7 @@ export {
   hubReplyRelayCmd,
   hubReplyRelayTimeoutMs,
   hubReplyRelaySources,
+  hubApprovalMode,
   hubPermissionThreadDedupMs,
   hubMaxBodyBytes,
   hubMaxSttBodyBytes,

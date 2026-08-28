@@ -1,5 +1,5 @@
 /**
- * Notification Hub — G2 ミラー表示状態 API のテスト（plan/g2-mirror.md M2）
+ * Notification Hub — G2 ミラー表示状態 API のテスト。
  *
  * - POST /api/g2-display は要トークン、最新状態を保持し SSE `g2-display`（{seq} のみ）を配信
  * - GET /api/g2-display はビューア（mirror.html）向けにトークンなしで取得できる

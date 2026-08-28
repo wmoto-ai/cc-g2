@@ -15,7 +15,7 @@
 import type { EvenHubEvent } from '@evenrealities/even_hub_sdk'
 import type { BridgeConnection } from '../bridge'
 import { log } from '../log'
-import { transcribePcmChunks } from '../stt/groq'
+import { tp } from '../i18n'
 import { errorMessage, getReplyResultMessage } from '../app/format'
 import { extractAskQuestions, isAskUserQuestionNotification } from '../app/ask-question'
 import { buildNotificationActions } from '../glasses-ui'
@@ -28,17 +28,20 @@ import {
   REPLY_CONFIRM_EVENT_GUARD_MS,
   type AppContext,
 } from '../app/context'
-import { getContextPctForNotification } from '../hub/sse-client'
+import { getContextPctForNotification, resetListFilter } from '../app/notification-events'
 import {
   clearPendingNotifEvent,
   clearPendingScrollEvent,
   enterIdleScreen,
   navigateToAskQuestion,
   openImageDetail,
+  openListWithFilter,
+  openSessionList,
   returnToListFromResult,
   returnToListScreen,
   returnToReplyOriginScreen,
 } from './flows'
+import { ALL_FILTER, filterItemsBySession } from './session-groups'
 import { showReplyConfirmTextPage, startReplyRecording } from './recording'
 
 function queuePendingNotifEvent(ctx: AppContext, conn: BridgeConnection, event: EvenHubEvent) {
@@ -127,14 +130,15 @@ async function handleNotifEvent(ctx: AppContext, conn: BridgeConnection, event: 
         log(`[event] screen=idle eventType=${eventType} rapid=${isRapidTap} pending=${ctx.idleTapDuringRender} open=${shouldOpen}`)
         ctx.idleTapDuringRender = false
         if (!shouldOpen) return
-        if (ctx.notifState.items.length === 0) {
-          log('通知がありません。先に取得してください。')
-          return
-        }
+        // 0件でも一覧画面を開く（showNotificationList が「通知なし」を表示する）。
+        // 以前はここで抑止していたが、初回起動直後は画面が真っ暗なままになり
+        // 接続できているか判別できないため、明示操作には必ず応答する
         ctx.lastIdleEventAt = 0
         ctx.listOpenedFromIdleAt = Date.now()
         ctx.notifState.screen = 'list'
         ctx.notifState.selectedIndex = 0
+        // idle からの新規オープンは常に全件表示（絞り込みは解除する）
+        resetListFilter(ctx)
         await ctx.glassesUI.showNotificationList(ctx.connection!, ctx.notifState.items)
         ctx.ui.updateNotifInfo()
         log('待機画面から通知一覧を表示')
@@ -168,6 +172,11 @@ async function handleNotifEvent(ctx: AppContext, conn: BridgeConnection, event: 
             log(`[event] 一覧クローズ抑制: open直後 ${sinceOpen}ms (オープン動作の残りイベント)`)
             return
           }
+          // 絞り込み中は session-list へ一段戻る。全件表示中は待機に戻る。
+          if (ctx.notifState.sessionFilter !== null) {
+            await openSessionList(ctx)
+            return
+          }
           await enterIdleScreen(ctx, '通知一覧を閉じて待機に戻る (double tap)')
           return
         }
@@ -185,9 +194,15 @@ async function handleNotifEvent(ctx: AppContext, conn: BridgeConnection, event: 
           }
           const index = maybeIndex
           ctx.notifState.selectedIndex = index
-          const item = ctx.notifState.items[index]
+          // list index 0 は固定行「▸ Sessions」→ session-list へ。以降は絞り込み後の items[index-1]。
+          if (index === 0) {
+            await openSessionList(ctx)
+            return
+          }
+          const displayItems = filterItemsBySession(ctx.notifState.items, ctx.notifState.sessionFilter)
+          const item = displayItems[index - 1]
           if (!item) return
-          log(`通知選択: "${item.title}" (index=${ctx.notifState.selectedIndex})`)
+          log(`通知選択: "${item.title}" (index=${index})`)
           try {
             const detail = await ctx.notifClient.detail(item.id)
             ctx.notifState.detailItem = detail
@@ -217,6 +232,26 @@ async function handleNotifEvent(ctx: AppContext, conn: BridgeConnection, event: 
           } catch (err) {
             log(`通知詳細取得失敗: ${errorMessage(err)}`)
           }
+        }
+      } else if (ctx.notifState.screen === 'session-list') {
+        // セッション別一覧: double tap で全件一覧に戻る、行クリックでそのセッションに絞り込む
+        if (isDoubleTapEventType(eventType)) {
+          log('セッション一覧: double tap → 全件一覧')
+          await openListWithFilter(ctx, ALL_FILTER)
+          return
+        }
+        if (normalized.source === 'list') {
+          if (normalized.containerName !== 'sess-list') return
+          const index = normalized.index ?? ctx.notifState.sessionListIndex
+          ctx.notifState.sessionListIndex = index
+          const group = ctx.notifState.sessionGroups[index]
+          if (!group) {
+            log(`セッション一覧: 不明な index=${index} (groups=${ctx.notifState.sessionGroups.length})`)
+            return
+          }
+          log(`セッション選択: "${group.label}" key=${group.key ?? 'ALL'} (${group.count}件)`)
+          await openListWithFilter(ctx, { key: group.key, label: group.label })
+          return
         }
       } else if (ctx.notifState.screen === 'detail') {
         // 詳細画面: スクロールでページ送り＋画面遷移
@@ -470,7 +505,7 @@ async function handleNotifEvent(ctx: AppContext, conn: BridgeConnection, event: 
               log(`AskUserQuestion: 送信完了 status=${res.reply?.status || 'ok'}`)
               if (ctx.notifState.screen === 'reply-sending') {
                 if (result.ok) {
-                  await ctx.glassesUI.showReplyResult(ctx.connection!, true, `回答: ${selectedLabel}`)
+                  await ctx.glassesUI.showReplyResult(ctx.connection!, true, tp('answer_label', { label: selectedLabel }))
                 } else {
                   await ctx.glassesUI.showReplyResult(ctx.connection!, false, result.message || 'error')
                 }
@@ -513,7 +548,7 @@ async function handleNotifEvent(ctx: AppContext, conn: BridgeConnection, event: 
           try {
             const stt = ctx.realtimeSTT
               ? await (async () => { const r = await ctx.realtimeSTT!.stop(); ctx.realtimeSTT = null; return r })()
-              : await transcribePcmChunks(ctx.replyAudioChunks)
+              : await ctx.transport.transcribeBatch(ctx.replyAudioChunks)
             const text = stt.text || ''
             log(`返信STT完了: provider=${stt.provider} text="${text}"`)
 

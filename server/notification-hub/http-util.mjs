@@ -138,13 +138,18 @@ function requireApiAuth(req, res) {
 
 function matchPathParam(pathname, prefix, suffix = '') {
   if (!pathname.startsWith(prefix)) return null
-  const rest = pathname.slice(prefix.length)
+  let param = pathname.slice(prefix.length)
   if (suffix) {
-    if (!rest.endsWith(suffix)) return null
-    const param = rest.slice(0, -suffix.length)
-    return param && !param.includes('/') ? decodeURIComponent(param) : null
+    if (!param.endsWith(suffix)) return null
+    param = param.slice(0, -suffix.length)
   }
-  return rest && !rest.includes('/') ? decodeURIComponent(rest) : null
+  if (!param || param.includes('/')) return null
+  try {
+    return decodeURIComponent(param)
+  } catch {
+    // 不正なパーセントエンコード（例: "%"）は no-match として 404 に落とす
+    return null
+  }
 }
 
 export {

@@ -60,6 +60,9 @@ function runScript(script, input, hubBase, envOverrides = {}) {
         ...process.env,
         HUB_URL: hubBase,
         HUB_AUTH_TOKEN: TEST_HUB_TOKEN,
+        // トークン解決はファイル優先（resolve_hub_auth_token）。repo 実トークンを
+        // 拾わないよう空ファイルを指定して env の TEST_HUB_TOKEN を使わせる
+        HUB_AUTH_TOKEN_FILE: '/dev/null',
         CC_G2_TMUX_TARGET: '',
         ...envOverrides,
       },

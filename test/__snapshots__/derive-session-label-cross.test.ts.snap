@@ -19,6 +19,22 @@ exports[`deriveSessionLabel クライアント/サーバー同一性 > 代表値
     "label": "#1",
   },
   {
+    "input": "g2-demo-abcd-codex:0.0",
+    "label": "#1",
+  },
+  {
+    "input": "g2-demo-abcd-codex-2:0.0",
+    "label": "#2",
+  },
+  {
+    "input": "g2-demo-abcd-copilot:0.0",
+    "label": "#1",
+  },
+  {
+    "input": "g2-demo-abcd-copilot-2:0.0",
+    "label": "#2",
+  },
+  {
     "input": "plain-session:0.0",
     "label": "",
   },

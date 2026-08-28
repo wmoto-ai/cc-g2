@@ -8,6 +8,7 @@
  */
 import type { BridgeConnection } from '../../bridge'
 import { log } from '../../log'
+import { t } from '../../i18n'
 import { byteLen, truncateByBytes } from '../text-format'
 import type { RenderCore } from '../render-core'
 
@@ -45,7 +46,7 @@ export function createAskQuestionScreens(core: RenderCore) {
       parts.push(`${qNum}${questionData.question}`)
       if (questionData.options.length > 0) {
         parts.push('')
-        parts.push('--- 選択肢 ---')
+        parts.push(t('askq_options_divider'))
         for (const opt of questionData.options) {
           const desc = opt.description ? `: ${opt.description}` : ''
           parts.push(`• ${opt.label}${desc}`)
@@ -72,7 +73,7 @@ export function createAskQuestionScreens(core: RenderCore) {
       const qNum = totalQuestions > 1 ? `[${questionIndex + 1}/${totalQuestions}] ` : ''
 
       const optionLabels = questionData.options.map((o) => o.label)
-      optionLabels.push('その他（音声）', '◀ 戻る')
+      optionLabels.push(t('askq_other_voice'), t('act_back'))
 
       // SDK上限: TextContainer + ListContainer 各コンテンツが 999 bytes 以内
       // ヘッダーテキストが長すぎるとファームウェアがページ全体を破棄するため切り詰める

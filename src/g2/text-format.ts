@@ -5,6 +5,7 @@
  * glasses-ui.ts から無編集移動）。バイト計算はすべて UTF-8 基準。
  */
 import type { NotificationItem } from '../notifications'
+import { t } from '../i18n'
 
 // ListContainer アイテムの公式上限（hub.evenrealities.com/docs/guides/display:
 // 最大20件・1件あたり最大「64文字」）。超過はページ全体が Invalid parameters で拒否される。
@@ -29,7 +30,7 @@ const textEncoder = new TextEncoder()
 
 export function paginateText(text: string, maxBytes = 999): string[] {
   const normalized = text?.replace(/\r\n/g, '\n').trim() ?? ''
-  if (!normalized) return ['（本文なし）']
+  if (!normalized) return [t('body_none')]
 
   const chars = Array.from(normalized)
   const pages: string[] = []
@@ -59,7 +60,7 @@ export function paginateText(text: string, maxBytes = 999): string[] {
     pos = end
   }
 
-  return pages.length > 0 ? pages : ['（本文なし）']
+  return pages.length > 0 ? pages : [t('body_none')]
 }
 
 /** metadata.cwdからプロジェクト名を抽出（短縮） */
@@ -70,18 +71,21 @@ function extractProjectSlug(cwd: string): string {
 
 /**
  * tmux ターゲット名からセッションラベル（#1, #2 …）を導出する。
- * 注意: server/notification-hub/notification-utils.mjs に同一ロジックの
- * サーバー側実装がある（ビルド境界が異なるため統合不可）。変更時は両方を
- * 揃えること。同一性は test/derive-session-label-cross.test.ts が監視している。
+ * セッション名: g2-<slug>-<hash4>[-codex|-copilot][-N]。末尾 -N を剥がしてから
+ * hash(+エージェント種別)終端を判定する。エージェント種別はラベルに含めない。
+ * 注意: server/notification-hub/notification-utils.mjs と scripts/lib/common.sh
+ * (derive_session_label) に同一ロジックの実装がある（ビルド境界が異なるため統合
+ * 不可）。変更時は 3 実装を揃えること。同一性は
+ * test/derive-session-label-cross.test.ts が監視している。
  */
 export function deriveSessionLabel(tmuxTarget: string): string {
   const session = tmuxTarget.split(':')[0] || ''
   const numbered = session.match(/-(\d+)$/)
   if (numbered) {
     const prefix = session.slice(0, -numbered[0].length)
-    if (/-[0-9a-f]{4}$/.test(prefix)) return `#${numbered[1]}`
+    if (/-[0-9a-f]{4}(?:-codex|-copilot)?$/.test(prefix)) return `#${numbered[1]}`
   }
-  if (/-[0-9a-f]{4}$/.test(session)) return '#1'
+  if (/-[0-9a-f]{4}(?:-codex|-copilot)?$/.test(session)) return '#1'
   return ''
 }
 
@@ -151,7 +155,7 @@ export function byteLen(text: string): number {
  */
 export function formatForG2ScrollableText(text: string, maxBytes = 999): string {
   const normalized = text.replace(/\s+/g, ' ').trim()
-  if (!normalized) return '（認識結果なし）'
+  if (!normalized) return t('stt_no_result')
   return truncateByBytes(normalized, maxBytes)
 }
 

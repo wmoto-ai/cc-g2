@@ -2,7 +2,7 @@
 node_modules/
 dist/
 tmp/
-plan/
+/plan/
 CLAUDE.md
 
 # Local env (Vite)

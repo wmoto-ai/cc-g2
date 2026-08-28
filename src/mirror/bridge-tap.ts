@@ -1,12 +1,12 @@
 /**
- * bridge 境界の観測タップ（plan/g2-mirror.md）
+ * bridge 境界の観測タップ。
  *
  * conn.bridge を透過 Proxy でラップし、G2 描画に使われる 4 メソッド
  * （createStartUpPageContainer / rebuildPageContainer / textContainerUpgrade /
  * updateImageRawData）の payload を MirrorStore へ同期反映する。
  * render-core.ts（凍結）・screens・glasses-ui は一切変更しない。
  *
- * 実装条件（codex レビュー反映、plan/g2-mirror.md 参照）:
+ * 実装条件:
  * - get は Reflect.get(target, prop)（receiver を渡さない）で値を取り、SDK の
  *   getter / private fields / brand check を元 bridge の this で解決する
  * - function はプロパティ毎にキャッシュした wrapper を返し、

@@ -1,0 +1,12 @@
+# secrets(テンプレートは env.example としてコミット、実値の .env は不可)
+.env
+.env.*
+
+node_modules/
+data/
+dist/
+tmp/
+coverage/
+*.log
+*.tsbuildinfo
+.DS_Store

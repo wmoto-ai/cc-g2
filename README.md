@@ -1,22 +1,46 @@
-# cc-g2 — Smart glasses companion for Claude Code / Codex CLI
+# cc-g2 — Smart glasses companion for Claude Code / Codex CLI / Copilot CLI
 
 [日本語 README](./README.ja.md)
 
-`cc-g2` connects Even G2 smart glasses to Claude Code / Codex CLI so you can review permission prompts, send voice comments, and check completion notifications without staying at your desk.
+<p align="center">
+  <img src="./docs/assets/cc-g2-shako-banner.jpg" alt="cc-g2 SHAKO banner" width="900">
+</p>
+
+`cc-g2` connects Even G2 smart glasses to Claude Code / Codex CLI / Copilot CLI so you can review permission prompts, send voice comments, and check completion notifications without staying at your desk.
 
 ![cc-g2 simulator demo](./docs/screenshots/cc-g2-simulator.gif)
 
-Even G2 can open notifications, record a voice reply, and send that response back to Claude Code or Codex CLI through the local Hub.
+Even G2 can open notifications, record a voice reply, and send that response back to Claude Code, Codex CLI, or Copilot CLI through the local Hub.
 
 ## What works today
 
-- Approve / deny Claude Code / Codex CLI permission requests from G2
+- Approve / deny Claude Code / Codex CLI / Copilot CLI permission requests from G2
 - Answer Claude Code `AskUserQuestion` prompts from G2 option lists
 - Send voice comments back to Claude Code
-- Check Claude Code / Codex CLI completion notifications on G2
+- Check Claude Code / Codex CLI / Copilot CLI completion notifications on G2
 - Browse recent notifications and details on the glasses
 - Display images / screenshots sent from Claude Code or Codex CLI on G2 (`scripts/g2-send-image.sh`, usage prompt is auto-injected into both CLIs at launch)
 - Launch Claude Code / Codex CLI sessions by voice via Even App custom AI
+
+## Supported CLIs
+
+cc-g2 supports Claude Code / Codex CLI / Copilot CLI. Hook mechanisms and available features differ slightly per CLI.
+
+| | Claude Code | Codex CLI | Copilot CLI |
+|---|---|---|---|
+| Launch | `cc-g2` | `cc-g2 codex` | `cc-g2 copilot` |
+| Hook mechanism | HTTP hook (`--settings`) | command hook (`-c hooks=`) | hooks JSON (`$COPILOT_HOME/hooks/cc-g2.json`) |
+| Approve / deny (G2 & Telegram) | ✅ | ✅ | ✅ |
+| AskUserQuestion answers | ✅ | — | — |
+| Completion notifications | ✅ | ✅ | ✅ |
+| Reply relay (tmux / herdr key injection) | ✅ | ✅ | ✅ |
+| Local settlement detection (PostToolUse) | ✅ | ✅ (incl. auto_review) | ✅ |
+| Voice Entry session launch | ✅ | ✅ | — |
+| BYOK (local models) | — | — | ✅ (`COPILOT_PROVIDER_*`) |
+
+- **Local settlement detection**: a manual approval in the terminal, or codex's automatic approval via `approvals_reviewer=auto_review`, is detected through the PostToolUse hook and auto-resolves the pending approval on the Hub (the Telegram buttons close and the G2 display updates).
+- **Image display** (see "What works today") is Claude Code / Codex CLI only (Copilot CLI has no prompt-injection mechanism).
+- Local settlement detection for Copilot CLI is implemented but not yet verified on real hardware.
 
 ## Known limitations
 
@@ -24,16 +48,38 @@ See [docs/known-limitations.md](docs/known-limitations.md) for details on G2 dis
 
 ## Architecture
 
+cc-g2 has two transport modes.
+
+**hub mode** (home / same LAN / Tailscale — for development, QR launch, sideloading):
+
 ```text
 PC (Claude Code / Codex CLI + Hub + Voice Entry) <-> iPhone (Even App + Vite UI) <-> Even G2
+```
+
+**telegram mode** (on the go / primary path for the Store build — works without reachability to the Hub or Tailscale):
+
+```text
+Mac adapter (cc-tg bot, Hub subscriber) <-Bot API-> Telegram <-MTProto/userbot-> iPhone (Even App + cc-g2 WebView) <-> Even G2
 ```
 
 - **Notification Hub** (`:8787`) handles notifications and approval flow
 - **Vite UI** (`:5173`) provides the G2 companion web UI
 - **Voice Entry** (`:8797`) launches sessions by voice (optional)
-- **Claude Code HTTP hook / Codex command hook** sends permission requests to the Hub
+- **Per-CLI hooks** (Claude Code: HTTP hook / Codex CLI: command hook / Copilot CLI: hooks JSON) send permission requests to the Hub
+- **Telegram adapter** subscribes to the Hub and delivers approvals, notifications, and images to Telegram → [packages/telegram-adapter](packages/telegram-adapter/README.md)
+
+> Host / ports (the Hub and Vite bind to `0.0.0.0`; `:8787` / `:5173` / `:8797`) can be overridden with environment variables (`HUB_PORT` / `VITE_PORT` / `CC_G2_VOICE_ENTRY_PORT`, etc.).
 
 The Hub is intended to mirror and answer explicit permission prompts. It should not broaden Claude Code / Codex CLI permissions or override user / org policy outside the normal `approve` / `deny` flow.
+
+### Choosing a mode
+
+| Mode | Use for | Reachability assumption |
+|------|---------|-------------------------|
+| **hub** | home / dev, QR launch, sideloading | iPhone → Mac (same LAN / Tailscale) |
+| **telegram** | on the go, primary path for the Even Hub Store build | Telegram (no Hub / Tailscale needed) |
+
+telegram mode reproduces the G2 experience (notification list, detail, approval, voice comment, image) over Telegram even when the iPhone cannot reach the Hub or Tailscale. See the [Telegram adapter README](packages/telegram-adapter/README.md) for setup. Telegram bot chats are not end-to-end encrypted, and the Mini App stores its Telegram session in Even App local storage, so use a dedicated agent account with 2FA enabled.
 
 ## Recommended setup
 
@@ -55,6 +101,7 @@ Reference: <https://getmoshi.app/articles/mac-remote-endless-agent-setup>
 - Tailscale (optional if you disable QR-based remote access)
 - Claude Code (`claude` command)
 - Codex CLI (`codex` command, only for `cc-g2 --codex` / `cc-g2 codex`)
+- GitHub Copilot CLI (`copilot` command, only for `cc-g2 --copilot` / `cc-g2 copilot`)
 
 > `cc-g2` is intended for trusted networks, not public internet deployment.
 
@@ -107,6 +154,17 @@ cc-g2
 
 This starts the Hub and Vite UI, injects Claude Code hooks, prepares a tmux session, shows a QR code, and launches Claude Code.
 
+To launch Codex CLI or Copilot CLI instead:
+
+```bash
+cc-g2 --codex     # or: cc-g2 codex
+cc-g2 --copilot   # or: cc-g2 copilot
+```
+
+For Copilot CLI, set `COPILOT_MODEL` / `COPILOT_PROVIDER_*` in your environment to use a local model (BYOK) — these are propagated only to the copilot-mode tmux session.
+
+> **First launch note**: Copilot CLI shows a folder trust prompt in the TUI; approve it to enable the hooks (G2 approvals / notifications). Codex CLI also shows a one-time "Hooks need review" prompt on the first launch after its hooks config changes — approve it.
+
 ## Commands
 
 | Command | Description |
@@ -117,6 +175,9 @@ This starts the Hub and Vite UI, injects Claude Code hooks, prepares a tmux sess
 | `cc-g2 codex` | Same as `cc-g2 --codex` |
 | `cc-g2 --native-codex` | Legacy alias for `cc-g2 --codex` |
 | `cc-g2-codex` | Alias for `cc-g2 --codex` |
+| `cc-g2 --copilot` | Start infra + show QR + launch GitHub Copilot CLI with G2 hooks |
+| `cc-g2 copilot` | Same as `cc-g2 --copilot` |
+| `cc-g2-copilot` | Alias for `cc-g2 --copilot` |
 | `cc-g2 !` | Restart infra first |
 | `cc-g2 stop` | Stop Hub + Vite |
 | `cc-g2 status` | Check runtime status |
@@ -139,7 +200,7 @@ This starts the Hub and Vite UI, injects Claude Code hooks, prepares a tmux sess
 4. Choose **Send / Retry / Cancel** after STT finishes
 5. **Swipe cancels recording** while recording is active
 
-Voice comments are returned to Claude Code / Codex CLI as **deny + instruction text**.
+Voice comments are returned to Claude Code / Codex CLI / Copilot CLI as **deny + instruction text**.
 
 ### AskUserQuestion flow
 
@@ -152,6 +213,27 @@ When Claude Code asks an `AskUserQuestion`, cc-g2 opens the question directly on
 5. Choose **Other (voice)** if you need to dictate a free-form answer
 
 Selected answers are sent back through the Hub as an answer payload for the matching Claude Code prompt.
+
+## Approval flow
+
+```text
+Claude Code / Codex CLI / Copilot CLI ─ PermissionRequest hook ─► Hub
+     │                                                            │
+     │                                             creates a notification / pending approval
+     │                                                            │
+     │◄──────────────── approve / deny / comment ─────────────── G2
+```
+
+- **Approve**: Claude Code / Codex CLI / Copilot CLI proceeds
+- **Deny**: Claude Code / Codex CLI / Copilot CLI aborts
+- **Comment**: returned as deny + instruction text
+- **Hub not running**: falls back to the agent's normal UI / error handling
+
+### Approval modes (nonblocking / longpoll)
+
+The default is **nonblocking**: the hook responds immediately and the CLI's own dialog stays on screen. Decisions from G2 / Telegram reach the CLI via tmux / herdr key injection, and whichever side (local or remote) decides first wins. When you settle locally — a manual approval in the terminal, or codex's auto_review — the PostToolUse hook detects it and auto-resolves the pending approval on the Hub, so the Telegram buttons close and the G2 display updates. Approvals left unexecuted when the turn ends are swept as "ended without execution".
+
+Set `CC_G2_APPROVAL_MODE=longpoll` in `.env.local` to restore the old blocking behavior (the hook waits for the decision). Switching modes requires a Hub restart (`cc-g2 !`).
 
 ## Voice Entry
 
@@ -229,6 +311,7 @@ pnpm test:watch
 - If Voice Entry won't start: check `cc-g2 status` and make sure `CC_G2_VOICE_ENTRY_ENABLED=0` is not set in `.env.local`
 - If Even App can't connect: verify the Bearer token with `cat tmp/voice-entry/voice-entry-token` and check Tailscale connectivity
 - If Hub history files grow too large: stop the Hub (`cc-g2 stop`), then run `node scripts/prune-hub-history.mjs --dry-run` to preview and `node scripts/prune-hub-history.mjs` to prune (keeps 14 days by default, with automatic backup)
+- To see diagnostic logs: the URL parameter `?logmirror=1` (or the build-time `VITE_LOG_MIRROR`) mirrors info-level logs onto the screen. This is **for diagnostics only — do not use it routinely** (it increases log volume and may render sensitive information on screen)
 
 ## Acknowledgments
 

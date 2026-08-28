@@ -24,3 +24,8 @@ jobs:
 
       - name: Dependency review
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          # No patched elliptic release exists. It is included by the browser crypto
+          # polyfill, but cc-g2's Telegram path does not call ECDSA signing APIs.
+          # Keep every other advisory blocking, including low severity findings.
+          allow-ghsas: GHSA-848j-6mx2-7j84

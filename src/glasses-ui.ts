@@ -24,16 +24,27 @@ export { paginateText }
 // 後方互換: 通知アクション・セッションアクティビティ型は従来 glasses-ui の export だった
 // （main.ts / event-router / flows / context 等が参照）
 export { buildNotificationActions }
-export type { NotificationAction, SessionActivityState } from './g2/screens/notification'
+export type { NotificationAction } from './g2/screens/notification'
+export type { SessionActivityState, SessionGroup, SessionFilter } from './g2/session-groups'
 export type { AskQuestionData } from './g2/screens/ask-question'
+
+import type { SessionGroup } from './g2/session-groups'
 
 /** G2ディスプレイ上の通知UIの状態 */
 export type NotificationUIState = {
-  screen: 'idle' | 'list' | 'detail' | 'detail-actions' | 'image-detail' | 'ask-question' | 'ask-question-detail' | 'reply-recording' | 'reply-confirm' | 'reply-confirm-actions' | 'reply-sending'
+  screen: 'idle' | 'list' | 'session-list' | 'detail' | 'detail-actions' | 'image-detail' | 'ask-question' | 'ask-question-detail' | 'reply-recording' | 'reply-confirm' | 'reply-confirm-actions' | 'reply-sending'
   items: NotificationItem[]
   /** detail-actions のメニュー項目（表示時に組み立て、イベント処理で id 参照） */
   detailActions: NotificationAction[]
   selectedIndex: number
+  /** 通知一覧の絞り込み: null=全件。items 自体は常に全件を保持し、表示時にフィルタする */
+  sessionFilter: string | null
+  /** 絞り込み中ヘッダに表示するセッションラベル（全件時は ''） */
+  sessionFilterLabel: string
+  /** session-list 画面の行モデル（開いた時点のスナップショット） */
+  sessionGroups: SessionGroup[]
+  /** session-list 画面の選択 index */
+  sessionListIndex: number
   /** detail画面のページ送り用（fullTextを複数ページに分割） */
   detailPages: string[]
   detailPageIndex: number
@@ -62,6 +73,7 @@ export function createGlassesUI() {
 
   return {
     setSessionActivities: notification.setSessionActivities,
+    setListFilter: notification.setListFilter,
 
     /** 描画中かどうか（ポーリング等で衝突を避けるために使用） */
     isRendering(): boolean {
@@ -74,6 +86,7 @@ export function createGlassesUI() {
     showIdleLauncher: misc.showIdleLauncher,
 
     showNotificationList: notification.showNotificationList,
+    showSessionList: notification.showSessionList,
     showNotificationDetail: notification.showNotificationDetail,
     updateDetailHeaderBadge: notification.updateDetailHeaderBadge,
     getDetailPageCount: notification.getDetailPageCount,

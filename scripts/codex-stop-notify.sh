@@ -29,7 +29,7 @@ fi
 CURRENT_STEP="parse_transport"
 HUB_PORT="${HUB_PORT:-8787}"
 HUB_URL="${HUB_URL:-http://127.0.0.1:${HUB_PORT}}"
-HUB_AUTH_TOKEN="${HUB_AUTH_TOKEN:-}"
+HUB_AUTH_TOKEN="$(resolve_hub_auth_token "$PROJECT_DIR")"
 
 CURRENT_STEP="hub_healthcheck"
 if ! curl -s --max-time 1 "${HUB_URL}/api/health" >/dev/null 2>&1; then
@@ -73,7 +73,7 @@ fi
 
 CURRENT_STEP="build_payload"
 TMUX_TARGET="$(resolve_tmux_target)"
-SESSION_LABEL="$(derive_session_label "${TMUX_TARGET:-}")"
+SESSION_LABEL="$(derive_session_label "$(resolve_tmux_session_name)")"
 PROJECT="$(basename "${CWD:-unknown}")"
 LAST_MESSAGE_CLEAN="$(printf '%s' "$LAST_MESSAGE_FULL" | sed 's/\r$//' | sed 's/[[:space:]]\+$//')"
 if [ -z "$LAST_MESSAGE_CLEAN" ]; then

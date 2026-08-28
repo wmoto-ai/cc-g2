@@ -37,7 +37,7 @@ if [ "$STOP_HOOK_ACTIVE" = "true" ]; then
 fi
 
 HUB_PORT="${HUB_PORT:-8787}"
-HUB_AUTH_TOKEN="${HUB_AUTH_TOKEN:-}"
+HUB_AUTH_TOKEN="$(resolve_hub_auth_token "$PROJECT_DIR")"
 HUB_URL="http://127.0.0.1:${HUB_PORT}"
 
 # Hub が起動しているか簡易チェック
@@ -49,10 +49,13 @@ fi
 CURRENT_STEP="parse_hook_input"
 TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | jq -r '.transcript_path // empty')
 CWD=$(echo "$HOOK_INPUT" | jq -r '.cwd // empty')
+# session_id は Stop 掃除（同一 sessionId の残 pending 承認クローズ）の突合キー。
+# permission-request hook が記録する session_id と一致させる。
+SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty')
 
 CURRENT_STEP="resolve_tmux_target"
 TMUX_TARGET="$(resolve_tmux_target)"
-SESSION_LABEL="$(derive_session_label "${TMUX_TARGET:-}")"
+SESSION_LABEL="$(derive_session_label "$(resolve_tmux_session_name)")"
 
 LAST_MESSAGE_FULL=""
 if [ -n "$TRANSCRIPT_PATH" ]; then
@@ -107,6 +110,7 @@ PAYLOAD=$(jq -n \
   --arg agent "claude-code" \
   --arg tmuxTarget "${TMUX_TARGET:-}" \
   --arg sessionLabel "${SESSION_LABEL:-}" \
+  --arg sessionId "${SESSION_ID:-}" \
   --arg ts "$(date +%s)" \
   '{
     title: $title,
@@ -124,7 +128,8 @@ PAYLOAD=$(jq -n \
       project: $project,
       agentName: $agent,
       tmuxTarget: (if $tmuxTarget == "" then null else $tmuxTarget end),
-      sessionLabel: (if $sessionLabel == "" then null else $sessionLabel end)
+      sessionLabel: (if $sessionLabel == "" then null else $sessionLabel end),
+      sessionId: (if $sessionId == "" then null else $sessionId end)
     }
   }')
 

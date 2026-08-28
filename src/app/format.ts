@@ -6,6 +6,7 @@
  */
 import type { NotificationUIState } from '../glasses-ui'
 import type { NotificationItem } from '../notifications'
+import { t, tp, localeTag } from '../i18n'
 
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -23,6 +24,7 @@ export function screenLabel(screen: NotificationUIState['screen']): string {
   switch (screen) {
     case 'idle': return 'idle'
     case 'list': return 'list'
+    case 'session-list': return 'sessions'
     case 'detail': return 'detail'
     case 'detail-actions': return 'actions'
     case 'image-detail': return 'image'
@@ -46,12 +48,12 @@ export function replyStatusLabel(item: NotificationItem): string {
 }
 
 export function formatRelativeTime(ms: number | null): string {
-  if (!ms) return 'まだありません'
+  if (!ms) return t('rel_none')
   const diff = Date.now() - ms
-  if (diff < 5_000) return 'たった今'
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}秒前`
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`
-  return new Date(ms).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+  if (diff < 5_000) return t('rel_now')
+  if (diff < 60_000) return tp('rel_sec', { n: Math.floor(diff / 1000) })
+  if (diff < 3_600_000) return tp('rel_min', { n: Math.floor(diff / 60_000) })
+  return new Date(ms).toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' })
 }
 
 export function getReplyResultMessage(res: { reply?: { status?: string; result?: string; error?: string; ignoredReason?: string } } | undefined): { ok: boolean; message?: string } {
@@ -62,10 +64,10 @@ export function getReplyResultMessage(res: { reply?: { status?: string; result?:
   }
   if (reply.result === 'ignored') {
     if (reply.ignoredReason === 'approval-not-pending') {
-      return { ok: false, message: 'この承認は既に無効です' }
+      return { ok: false, message: t('approval_invalid') }
     }
     if (reply.ignoredReason === 'approval-link-not-found') {
-      return { ok: false, message: '承認リンクが見つかりません' }
+      return { ok: false, message: t('approval_link_missing') }
     }
     return { ok: false, message: reply.error || 'reply ignored' }
   }

@@ -9,9 +9,9 @@ import { log } from '../log'
 import { appConfig, canUseGroqStt, canUseOpenaiRealtimeStt, canUseSonioxStt } from '../config'
 import { getWebSpeechSupport } from '../stt/webspeech'
 import { errorMessage } from '../app/format'
+import { t } from '../i18n'
 import type { AppContext } from './context'
 import { ensureNotifEventHandler } from '../g2/event-router'
-import { connectNotificationSSE } from '../hub/sse-client'
 import { wrapBridgeForMirror } from '../mirror/bridge-tap'
 
 // --- Connect ---
@@ -28,14 +28,14 @@ export async function connectGlasses(ctx: AppContext): Promise<void> {
     return
   }
   ctx.connectInFlight = true
-  ctx.ui.setPill('connection-status', '接続中...', 'warn')
+  ctx.ui.setPill('connection-status', t('status_connecting'), 'warn')
   log('Bridge接続を開始...')
 
   try {
     ctx.connection = await initBridge()
     // G2 ミラー: bridge を観測タップでラップする（描画前のここで1回だけ。
     // render-core の WeakMap キーは conn.bridge 参照のため途中差し替え禁止。
-    // src/mirror/bridge-tap.ts / plan/g2-mirror.md 参照）
+    // 詳細は src/mirror/bridge-tap.ts を参照。
     if (ctx.mirror && ctx.connection.bridge) {
       ctx.connection.bridge = wrapBridgeForMirror(ctx.connection.bridge, ctx.mirror)
       log('G2ミラー: bridge 観測タップを有効化')
@@ -130,9 +130,9 @@ export async function connectGlasses(ctx: AppContext): Promise<void> {
       ctx.audioListenerAttached = true
     }
     ensureNotifEventHandler(ctx, ctx.connection)
-    connectNotificationSSE(ctx)
+    ctx.transport.connectEvents(ctx)
   } catch (err) {
-    ctx.ui.setPill('connection-status', '接続失敗', 'error')
+    ctx.ui.setPill('connection-status', t('status_connect_failed'), 'error')
     log(`接続失敗: ${err}`)
   } finally {
     ctx.connectInFlight = false

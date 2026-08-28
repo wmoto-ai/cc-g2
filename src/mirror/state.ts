@@ -1,5 +1,5 @@
 /**
- * G2 ミラー表示モデル（plan/g2-mirror.md）
+ * G2 ミラー表示モデル。
  *
  * bridge 境界（src/mirror/bridge-tap.ts）で観測した SDK payload から
  * 「いま G2 に表示されているはずの内容」を保持する。SDK・DOM に依存しない

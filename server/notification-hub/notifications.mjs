@@ -71,7 +71,10 @@ async function addNotification(payload, logPrefix = 'notification') {
   if (extId) notificationExternalIds.add(extId)
   await appendJsonl(notificationsFile, persistedNotification(item, { persistRaw: hubPersistRaw }))
 
-  // stop通知が来たら同セッションの全pending承認を自動解決
+  // stop通知が来たら同セッションの残 pending 承認を「実行されず終了」として掃除する。
+  // longpoll でブロック中の承認は Stop がそもそも届かない（hook がターンを塞ぐ）ため
+  // モードによる保護は不要。仮に競合しても poll 側が cleanup を検知して {} を返し
+  // CLI のネイティブダイアログに移行する良性動作になる（hooks.mjs の poll ループ参照）。
   if (hookType === 'stop') {
     const sessionId = item.metadata?.sessionId
     if (sessionId) {
