@@ -12,3 +12,5 @@ overrides:
   buffer: 6.0.3
   # socks の許容範囲内で、SSRF分類バイパスを修正した最小バージョンへ固定。
   ip-address: 10.3.1
+  # Even Hub CLI の許容範囲内で、!!omap のCPU DoSを修正した版へ固定。
+  js-yaml: 4.3.1

@@ -7,6 +7,7 @@ settings:
 overrides:
   buffer: 6.0.3
   ip-address: 10.3.1
+  js-yaml: 4.3.1
 
 importers:
 
@@ -1166,8 +1167,8 @@ packages:
     resolution: {integrity: sha512-N5A3KTWQpPWT4ExxxPlUx7WmykGXRzhNidWhV41d6Abu9YfI2NyWCJuxdPnslJCPWtbRpSVOWSnSS6GakLM/Rg==}
     engines: {node: '>= 20'}
 
-  js-yaml@4.3.0:
-    resolution: {integrity: sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q==}
+  js-yaml@4.3.1:
+    resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
     hasBin: true
 
   lightningcss-android-arm64@1.33.0:
@@ -1962,7 +1963,7 @@ snapshots:
       chalk: 5.6.2
       commander: 14.0.3
       inquirer: 13.4.3(@types/node@26.0.1)
-      js-yaml: 4.3.0
+      js-yaml: 4.3.1
       open: 11.0.0
       qr-image: 3.2.0
       qrcode-terminal: 0.12.0
@@ -2923,7 +2924,7 @@ snapshots:
       '@hapi/topo': 6.0.2
       '@standard-schema/spec': 1.1.0
 
-  js-yaml@4.3.0:
+  js-yaml@4.3.1:
     dependencies:
       argparse: 2.0.1
 
