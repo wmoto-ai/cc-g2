@@ -2,6 +2,10 @@
 
 [日本語 README](./README.ja.md)
 
+<p align="center">
+  <img src="./docs/assets/cc-g2-shako-banner.jpg" alt="cc-g2 SHAKO banner" width="900">
+</p>
+
 `cc-g2` connects Even G2 smart glasses to Claude Code / Codex CLI / Copilot CLI so you can review permission prompts, send voice comments, and check completion notifications without staying at your desk.
 
 ![cc-g2 simulator demo](./docs/screenshots/cc-g2-simulator.gif)

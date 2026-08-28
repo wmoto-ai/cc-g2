@@ -2,6 +2,10 @@
 
 [English README](./README.md)
 
+<p align="center">
+  <img src="./docs/assets/cc-g2-shako-banner.jpg" alt="cc-g2 SHAKO banner" width="900">
+</p>
+
 Even G2 と Claude Code / Codex CLI / Copilot CLI をつなぎ、承認・拒否・音声コメント・完了通知確認をグラスから行うためのハンズフリー companion layer です。PC の前にいなくても、iPhone 経由で G2 から agent の permission request に応答できます。
 
 ![cc-g2 simulator demo](./docs/screenshots/cc-g2-simulator.gif)
