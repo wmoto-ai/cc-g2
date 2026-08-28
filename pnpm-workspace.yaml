@@ -14,3 +14,5 @@ overrides:
   ip-address: 10.3.1
   # Even Hub CLI の許容範囲内で、!!omap のCPU DoSを修正した版へ固定。
   js-yaml: 4.3.1
+  # concurrently の許容範囲内で、parse() のCPU DoSを修正した版へ固定。
+  shell-quote: 1.9.0
