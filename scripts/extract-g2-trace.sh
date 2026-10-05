@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# G2 描画トレース抽出（リファクタ Phase 0: docs/refactor-plan.md）
+# G2 描画トレース抽出
 #
 # tmp/notification-hub/client-events.jsonl から G2 の描画系ログ
 # （createStartUp / rebuild / 画像タイル / 描画失敗）を時系列で抽出し、

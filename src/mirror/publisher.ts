@@ -1,5 +1,5 @@
 /**
- * G2 ミラー状態の Hub 送信。
+ * G2 ミラー状態の Hub 送信
  *
  * MirrorStore の更新を debounce（300ms trailing）でまとめ、最新状態だけを
  * POST /api/g2-display へ送る。Hub は SSE `g2-display` で軽量通知（{seq} のみ）を

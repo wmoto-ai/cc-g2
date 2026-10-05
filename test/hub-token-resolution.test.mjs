@@ -1,5 +1,5 @@
 /**
- * hub-token 401 対策（docs/hub-token-401-and-trust-gate.md）のテスト
+ * hub-token 401 対策のテスト
  *
  * Hub 再起動でトークンがローテートすると、セッション起動時に env へ焼き込まれた
  * 旧トークンのままフックが 401 になっていた。resolve_hub_auth_token（lib/common.sh）が

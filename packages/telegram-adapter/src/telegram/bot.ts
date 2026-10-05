@@ -24,7 +24,7 @@ interface FileSource {
 
 export function createBot(token: string, botInfo?: UserFromGetMe): Bot {
   const bot = new Bot(token, botInfo ? { botInfo } : undefined)
-  // 429(retry_after)・一時エラーの自動リトライは transformer に委譲(plan §6)
+  // 429(retry_after)・一時エラーの自動リトライは transformer に委譲
   bot.api.config.use(autoRetry())
   return bot
 }

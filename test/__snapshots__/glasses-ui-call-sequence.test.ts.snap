@@ -80,51 +80,6 @@ exports[`buildNotificationActions > 画像専用通知（hookType なし + image
 ]
 `;
 
-exports[`requestApproval > リスト選択イベントで選択肢ラベルを resolve する 1`] = `
-[
-  {
-    "method": "createStartUpPageContainer",
-    "payload": {
-      "containerTotalNum": 2,
-      "imageObject": [],
-      "listObject": [
-        {
-          "containerID": 2,
-          "containerName": "approval-list",
-          "height": 120,
-          "isEventCapture": 1,
-          "itemContainer": {
-            "isItemSelectBorderEn": 1,
-            "itemCount": 2,
-            "itemName": [
-              "許可",
-              "拒否",
-            ],
-            "itemWidth": 0,
-          },
-          "width": 560,
-          "xPosition": 8,
-          "yPosition": 64,
-        },
-      ],
-      "textObject": [
-        {
-          "containerID": 1,
-          "containerName": "approval-title",
-          "content": "pnpm test
-テストを実行します",
-          "height": 48,
-          "isEventCapture": 0,
-          "width": 560,
-          "xPosition": 8,
-          "yPosition": 10,
-        },
-      ],
-    },
-  },
-]
-`;
-
 exports[`showAskUserQuestion > リスト上限の強制適合: 21 個以上の選択肢は 20 件に、長い項目は byte cap に切り詰める 1`] = `
 [
   {
@@ -646,7 +601,7 @@ exports[`showNotificationList > セッションアクティビティがヘッダ
         {
           "containerID": 1,
           "containerName": "notif-header",
-          "content": "▶cc-g2 ○minima !other Xdead 1件 6/10 Wed 12:00",
+          "content": "▶cc-g2 ○sample !other Xdead 1件 6/10 Wed 12:00",
           "height": 28,
           "isEventCapture": 0,
           "width": 560,

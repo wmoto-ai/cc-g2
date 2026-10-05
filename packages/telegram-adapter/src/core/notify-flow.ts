@@ -1,4 +1,4 @@
-// Stop 通知の転送・返信中継と画像通知の sendPhoto(plan §5.5)。
+// Stop 通知の転送・返信中継と画像通知の sendPhoto。
 // 既読管理(seenNotificationIds)で SSE 重複・再配信を冪等化する。
 import type { HubClient } from '../hub/client'
 import type { NotificationListItem } from '../hub/types'

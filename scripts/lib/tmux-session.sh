@@ -55,7 +55,6 @@ build_g2_tmux_env() {
   local session_name="$1"
   local agent_mode="${2:-${AGENT_MODE:-claude}}"
   G2_TMUX_ENV=(
-    -e _CC_G2_INSIDE=1
     -e MOSHI_NOTIFY=1
     -e CC_G2_TMUX_TARGET="${session_name}:0.0"
     -e CC_G2_ENABLE_STATUSLINE="${ENABLE_STATUSLINE}"
@@ -101,11 +100,6 @@ build_nested_cmd() {
   fi
   cmd+="; exec \$SHELL"
   printf '%s' "$cmd"
-}
-
-has_tmux_session() {
-  local session_name="$1"
-  tmux has-session -t "$session_name" 2>/dev/null
 }
 
 launch_tmux_session_detached() {
@@ -183,22 +177,6 @@ run_internal_command() {
       done
       [ -n "$session_name" ] || { error "send requires --session"; exit 1; }
       send_to_tmux_session "$session_name" "$text"
-      exit 0
-      ;;
-    has-session)
-      local session_name=""
-      while [ $# -gt 0 ]; do
-        case "$1" in
-          --session) session_name="$2"; shift 2 ;;
-          *) error "Unknown has-session arg: $1"; exit 1 ;;
-        esac
-      done
-      [ -n "$session_name" ] || { error "has-session requires --session"; exit 1; }
-      if has_tmux_session "$session_name"; then
-        json_out --arg sessionName "$session_name" '{ok:true,exists:true,sessionName:$sessionName}'
-      else
-        json_out --arg sessionName "$session_name" '{ok:true,exists:false,sessionName:$sessionName}'
-      fi
       exit 0
       ;;
     find-session)

@@ -38,7 +38,8 @@ export default defineConfig({
     // tailscale serve (https://<machine>.<tailnet>.ts.net) からのアクセスを許可
     allowedHosts: ['.ts.net'],
     // mirror.html ビューアは同一 origin の /api だけを叩く（HTTPS 化時の mixed content
-    // 対策。Hub へは Vite dev server が中継する）。
+    // 対策）。pnpm dev 時は Vite dev server が Hub へ中継する（通常運用では cc-g2-server が
+    // ページと /api を同一 origin で配信するため、この proxy は使われない）。
     // メインアプリ（WebView）の Hub 直叩き（VITE_HUB_URL / :8787）には影響しない。
     proxy: {
       '/api': `http://127.0.0.1:${process.env.HUB_PORT || 8787}`,

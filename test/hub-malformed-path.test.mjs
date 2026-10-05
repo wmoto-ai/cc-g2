@@ -1,7 +1,7 @@
 /**
  * Notification Hub — 不正パーセントエンコードのパスで Hub が落ちないことのテスト
  *
- * 再現バグ（docs/hub-token-401-and-trust-gate.md と同時期に発見）:
+ * 再現バグ:
  * isPublicApiRequest() が try ブロックの外で matchNotificationDetail/matchImagePath を
  * 呼び、その中の decodeURIComponent('%') が URIError を投げると async ハンドラの
  * unhandledRejection となり Node 既定でプロセスが即死していた。

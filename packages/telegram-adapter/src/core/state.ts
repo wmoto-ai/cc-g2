@@ -1,6 +1,6 @@
 // 投稿済み承認・Stop メッセージ対応表・既読通知 id の永続化(data/state.json)。
 // 書き込みは tmp + rename のアトミック置換 + 500ms デバウンス。破損・消失時は空で開始し、
-// pending は reconciliation が再投稿する(重複投稿は許容 — plan §12)。
+// pending は reconciliation が再投稿する(重複投稿は許容)。
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Logger } from '../logger'

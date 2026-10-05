@@ -1,4 +1,4 @@
-// fail-closed アクセス制御(plan §5.6)。
+// fail-closed アクセス制御。
 // (1) from.id が allowlist に含まれ、かつ (2) chat.id が設定 chat と一致する update のみ通す。
 // 不許可は無応答で破棄(bot の存在を教えない)+ warn ログ。
 import type { Context, MiddlewareFn } from 'grammy'

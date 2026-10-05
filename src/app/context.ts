@@ -14,7 +14,6 @@ import type { EvenHubEvent } from '@evenrealities/even_hub_sdk'
 import type { BridgeConnection } from '../bridge'
 import type { createGlassesUI, NotificationUIState, SessionActivityState } from '../glasses-ui'
 import type { createNotificationClient } from '../notifications'
-import type { WebSpeechSession } from '../stt/webspeech'
 import type { RealtimeStt, Transport } from '../transport/types'
 import type { TransportEventMessage } from './notification-events'
 import type { MirrorStore } from '../mirror/state'
@@ -57,7 +56,7 @@ export type AppContext = {
   readonly notifClient: NotificationClient
   readonly ui: AppUi
   // G2 ミラー（?mirror=1 時のみ main.ts が生成。null なら app/connect.ts は
-  // bridge 観測タップを配線しない。
+  // bridge 観測タップを配線しない。src/mirror/ 参照）
   readonly mirror: MirrorStore | null
 
   // --- 接続状態 ---【主な書き手: app/connect.ts】
@@ -68,18 +67,12 @@ export type AppContext = {
   connectInFlight: boolean
   audioListenerAttached: boolean
   deviceStatusListenerAttached: boolean
-  // G2 の装着状態。
-  deviceWearing: boolean
   speechCapabilityLogged: boolean
 
   // --- dev マイクテスト ---【主な書き手: main.ts の dev UI 配線】
   isRecording: boolean
   audioChunks: Uint8Array[]
   audioTotalBytes: number
-  webSpeechSession: WebSpeechSession | null
-  webSpeechFinalText: string
-  webSpeechInterimText: string
-  webSpeechError: string
 
   // --- 返信録音 ---【主な書き手: g2/recording.ts（録音開始/停止は g2/event-router.ts からも）】
   replyAudioChunks: Uint8Array[]
@@ -148,16 +141,11 @@ export function createAppContext(deps: {
     connectInFlight: false,
     audioListenerAttached: false,
     deviceStatusListenerAttached: false,
-    deviceWearing: true,
     speechCapabilityLogged: false,
 
     isRecording: false,
     audioChunks: [],
     audioTotalBytes: 0,
-    webSpeechSession: null,
-    webSpeechFinalText: '',
-    webSpeechInterimText: '',
-    webSpeechError: '',
 
     replyAudioChunks: [],
     replyAudioTotalBytes: 0,

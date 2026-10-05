@@ -1,8 +1,9 @@
 /**
- * G2 ミラービューア（mirror.html）。
+ * G2 ミラービューア（mirror.html）
  *
  * Safari/PC から G2 表示のミラーを見る独立ページ。Hub へは同一 origin の
- * /api だけを叩く（Vite dev proxy 経由。HTTPS 化時の mixed content 対策）。
+ * /api だけを叩く（HTTPS 化時の mixed content 対策）。通常は cc-g2-server（Hub）が
+ * ページと /api を同一 origin で配信し、pnpm dev 時は Vite dev proxy が Hub へ中継する。
  *
  * カメラ重畳: getUserMedia（HTTPS 必須 → tailscale serve 経由で開く）で背面カメラを
  * 背景に出し、ミラー canvas を mix-blend-mode: screen で重畳する（黒が透過して

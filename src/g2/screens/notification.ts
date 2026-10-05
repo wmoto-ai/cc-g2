@@ -125,7 +125,7 @@ export function createNotificationScreens(
       }
 
       const displayItems = filterItemsBySession(items, filter.key)
-      // 固定行 + 19件 = 最大20行（§10 のリスト20件上限に収める）
+      // 固定行 + 19件 = 最大20行（リスト 20 件上限に収める）
       const shownItems = displayItems.slice(0, 19)
 
       // 重要: 実機ファームは ListContainer + TextContainer 複数 の組み合わせを

@@ -19,6 +19,11 @@ const hubAllowedOrigins = new Set(
     .map((s) => s.trim())
     .filter(Boolean),
 )
+// Host ヘッダの追加許可リスト（DNS rebinding 対策。host-guard.mjs 参照）
+const hubAllowedHosts = String(process.env.HUB_ALLOWED_HOSTS || '')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean)
 const hubPersistRaw = parseBoolEnv('HUB_PERSIST_RAW')
 const hubPersistToolInput = parseBoolEnv('HUB_PERSIST_TOOL_INPUT')
 const groqApiKey = String(process.env.GROQ_API_KEY || '').trim()
@@ -66,6 +71,7 @@ export {
   dataDir,
   hubAuthToken,
   hubAllowedOrigins,
+  hubAllowedHosts,
   hubPersistRaw,
   hubPersistToolInput,
   groqApiKey,

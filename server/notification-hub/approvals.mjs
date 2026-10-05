@@ -119,10 +119,11 @@ function resolveApproval(approvalId, decision, comment, decidedBy, options = {})
 // decide 時に reply-relay へ合成ペイロードを渡してキー注入し、ダイアログを閉じる。
 // longpoll モードでは hook 応答で決定が届くので何もしない（既定挙動不変）。
 // 対象は permission-request 承認のみ（AskUserQuestion 等の選択肢ダイアログは注入対象外）。
+// herdr 画面経路の承認（metadata.approvalMode=nonblocking）は Hub のモードによらず常に注入する。
 function maybeInjectApprovalDecision(record, decision, comment, decidedBy) {
-  if (hubApprovalMode !== 'nonblocking') return
   const notif = notificationsById.get(record.notificationId)
   if (!notif) return
+  if (hubApprovalMode !== 'nonblocking' && record.source !== 'herdr-screen') return
   const hookType = notif.metadata && notif.metadata.hookType
   if (hookType !== 'permission-request') return
   const payload = {

@@ -206,6 +206,22 @@ if [[ "$is_approval_prompt" == "1" ]]; then
     fi
   fi
 
+  # dsh-tui（実測 v0.13.0）は番号選択式（1. Yes, allow once / 2. No）。数字の単押しで即決定し、
+  # Enter も focus も不要。許可は常に「今回だけ」で、常時許可の選択肢は存在しない。
+  # 拒否時のコメントは決定後に通常メッセージとして送る（実行中なら steer として届く）。
+  if [[ "$agent_name_lc" == "dsh-tui" ]]; then
+    if [[ "$reply_action" == "approve" ]]; then
+      herdr_send_keys 1
+      exit 0
+    fi
+    herdr_send_keys 2
+    if [[ -n "$reply_comment" && "$reply_comment" != "deny" && "$reply_comment" != "拒否" ]]; then
+      sleep 0.4
+      herdr_submit_text "$reply_comment" "$reply_comment_probe"
+    fi
+    exit 0
+  fi
+
   # Copilot CLI TUI は番号選択リスト（1. Yes / 2. No + コメント）。承認は 1 の単押しで
   # 即実行、拒否/コメントは 2 でオプション 2 に移動してテキスト → Enter。
   # claude/codex 流の Escape 前置はダイアログをキャンセルするため送らない。

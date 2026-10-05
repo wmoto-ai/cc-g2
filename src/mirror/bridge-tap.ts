@@ -1,5 +1,5 @@
 /**
- * bridge 境界の観測タップ。
+ * bridge 境界の観測タップ（G2 ミラー）
  *
  * conn.bridge を透過 Proxy でラップし、G2 描画に使われる 4 メソッド
  * （createStartUpPageContainer / rebuildPageContainer / textContainerUpgrade /

@@ -54,8 +54,6 @@ export class OpenAIRealtimeSTT {
   private sessionReady = false
   private stopped = false
   private aborted = false
-  /** OpenAI Realtime API requires 24 kHz PCM16 input; G2 sends 16 kHz */
-  private needsResample = true
   /** Pending resolve for start() waiting on session.created */
   private startResolve: (() => void) | null = null
   private startTimeout: ReturnType<typeof setTimeout> | null = null
@@ -315,7 +313,8 @@ export class OpenAIRealtimeSTT {
   private sendAudioChunk(pcm: Uint8Array): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
 
-    const audioData = this.needsResample ? resample16kTo24k(pcm) : pcm
+    // OpenAI Realtime API requires 24 kHz PCM16 input; G2 sends 16 kHz
+    const audioData = resample16kTo24k(pcm)
     const base64 = bytesToBase64(audioData)
     this.wsSend({
       type: 'input_audio_buffer.append',

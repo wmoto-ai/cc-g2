@@ -81,7 +81,7 @@ export interface ContextSessionRecord {
   model: string
 }
 
-/** GET /api/session-activity の要素(state は active/idle/error/dead を想定、前方互換で string) */
+/** GET /api/session-activity の要素(state は active/waiting/done/idle/error/dead を想定、前方互換で string) */
 export interface SessionActivityRecord {
   tmuxTarget: string
   label: string

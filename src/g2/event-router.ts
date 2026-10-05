@@ -4,7 +4,7 @@
  * リファクタ Phase 4 で main.ts から無編集移動（モジュールレベル let → ctx.* の
  * 機械的書き換えと ctx 引数の受け渡しのみ）。
  *
- * 不変条件（docs/refactor-plan.md / docs/known-limitations.md 参照）:
+ * 不変条件（docs/known-limitations.md 参照）:
  * - handleNotifEvent の try/finally による notifEventInFlight 解放は外側1箇所を維持する
  * - 画面分岐は notifState.screen の厳密一致 else-if 連鎖（排他的）。handler map への
  *   変換は禁止（条件の重なり・早期 return の意味が壊れる）

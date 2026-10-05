@@ -36,6 +36,58 @@ resolve_claude_bin() { resolve_bin "CLAUDE_BIN" "claude"; }
 resolve_codex_bin() { resolve_bin "CODEX_BIN" "codex"; }
 resolve_copilot_bin() { resolve_bin "COPILOT_BIN" "copilot"; }
 
+# Claude Code 2.1.232 から git リポジトリは親ディレクトリの folder trust
+# （~/.claude.json の projects[<dir>].hasTrustDialogAccepted）を継承しなくなり、
+# リポジトリ自身が未信頼だと対話セッションの hooks / statusLine が黙って
+# 無効化される（本来出るはずの信頼確認ダイアログも表示されないため気づけない。
+# 2.1.229/233 の A/B 実測で確認済み）。cc-g2 の通知注入（Stop /
+# PermissionRequest / PostToolUse / statusline）が全滅するため、起動前に
+# 検査して修復を提案する。CLAUDE_STATE_FILE はテスト・別環境向けの上書き用。
+ensure_claude_folder_trust() {
+  local work_dir="$1"
+  local state_file="${CLAUDE_STATE_FILE:-${HOME}/.claude.json}"
+  [ -f "$state_file" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+
+  local trusted
+  if ! trusted="$(jq -r --arg d "$work_dir" \
+      '.projects[$d].hasTrustDialogAccepted // false' "$state_file" 2>/dev/null)"; then
+    warn "~/.claude.json を解析できないため folder trust を確認できません"
+    return 0
+  fi
+  [ "$trusted" = "true" ] && return 0
+
+  warn "このディレクトリは Claude Code の folder trust が未承認です: ${work_dir}"
+  warn "（未承認だと hooks / statusLine が無効になり G2 / Telegram 通知が届きません）"
+  local reply="y"
+  if [ -t 0 ]; then
+    read -r -p "  ~/.claude.json に信頼を記録して続行しますか？ [Y/n] " reply || reply="y"
+  elif [ "${CC_G2_AUTO_TRUST:-0}" != "1" ]; then
+    # 非対話起動では本人確認ができないので記録しない（CC_G2_AUTO_TRUST=1 で明示的に許可した場合のみ記録）
+    warn "非対話起動のため folder trust は記録しません（自動記録するには CC_G2_AUTO_TRUST=1）"
+    return 0
+  fi
+  case "$reply" in
+    [nN]*)
+      warn "未信頼のまま起動します（通知は届きません）"
+      return 0
+      ;;
+  esac
+
+  local tmp
+  tmp="$(mktemp "${state_file}.cc-g2.XXXXXX")" || return 0
+  if jq --arg d "$work_dir" \
+      '.projects[$d] = ((.projects[$d] // {}) + {hasTrustDialogAccepted: true})' \
+      "$state_file" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+    chmod 600 "$tmp"
+    mv "$tmp" "$state_file"
+    info "folder trust を記録しました: ${work_dir}"
+  else
+    rm -f "$tmp"
+    warn "~/.claude.json の更新に失敗しました。claude 起動後も通知が届かない場合は folder trust を手動で確認してください"
+  fi
+}
+
 # G2 画像送信のプロンプト注入（Claude Code: --append-system-prompt / Codex: developer_instructions）
 # HUB_AUTH_TOKEN / HUB_PORT は起動時の env で渡るため、プロンプト側に秘密情報は含めない
 build_g2_image_prompt() {
@@ -206,6 +258,7 @@ SETTINGS_JSON=$(jq -nc \
 }
 
 launch_claude_agent() {
+ensure_claude_folder_trust "$PWD"
 info "Hooks: PermissionRequest (HTTP) + PostToolUse (ローカル決着検知) + Stop (通知)"
 if [ -n "$STATUSLINE_CMD" ]; then
   info "StatusLine wrapper: ${STATUSLINE_SCRIPT}"

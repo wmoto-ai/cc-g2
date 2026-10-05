@@ -1,4 +1,4 @@
-// SSE イベント → 承認 / Stop / 画像 / 既決更新 への振り分け(plan §5.4/§5.5)。
+// SSE イベント → 承認 / Stop / 画像 / 既決更新 への振り分け。
 // notification-added / notification-updated 以外のイベント(session-activity 等)は無視する。
 import type { HubClient } from '../hub/client'
 import type { SseEvent } from '../hub/sse'

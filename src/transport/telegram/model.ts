@@ -98,10 +98,10 @@ export interface TgStatusPayload {
   /** null = アダプタが取得失敗(前回値を維持)。[] = 取得できて 0 件(クリアする) */
   contextSessions: { sessionId: string; cwd: string; usedPercentage: number; model: string }[] | null
   /** null = アダプタが取得失敗(前回値を維持)。[] = 取得できて 0 件(クリアする) */
-  sessionActivities: { tmuxTarget: string; label: string; state: 'active' | 'idle' | 'error' | 'dead' }[] | null
+  sessionActivities: { tmuxTarget: string; label: string; state: 'active' | 'waiting' | 'done' | 'idle' | 'error' | 'dead' }[] | null
 }
 
-const ACTIVITY_STATES = new Set(['active', 'idle', 'error', 'dead'])
+const ACTIVITY_STATES = new Set(['active', 'waiting', 'done', 'idle', 'error', 'dead'])
 
 export function parseStatusPayload(text: string): TgStatusPayload | null {
   for (const line of text.split('\n')) {
@@ -140,7 +140,7 @@ export function parseStatusPayload(text: string): TgStatusPayload | null {
               .map((a) => ({
                 ...a,
                 // 未知の state は安全側(idle)に落とす(アダプタ側の前方互換 string に対応)
-                state: (ACTIVITY_STATES.has(a.state) ? a.state : 'idle') as 'active' | 'idle' | 'error' | 'dead',
+                state: (ACTIVITY_STATES.has(a.state) ? a.state : 'idle') as 'active' | 'waiting' | 'done' | 'idle' | 'error' | 'dead',
               }))
           : null,
       }

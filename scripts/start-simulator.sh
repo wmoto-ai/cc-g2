@@ -8,8 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PORT="${SIMULATOR_PORT:-5173}"
 HUB_PORT="${HUB_PORT:-8787}"
-# 0.7.x は SDK 0.0.10 とペア（0.5.x は画像コンテナ非対応、SDK 0.0.7 時代）
-SIMULATOR_VERSION="${SIMULATOR_VERSION:-0.7.3}"
+# 既定は package.json の devDependency（@evenrealities/evenhub-simulator 0.9.3）と揃え、
+# SDK ^0.0.16 と組み合わせて使う（0.5.x は画像コンテナ非対応、SDK 0.0.7 時代）
+SIMULATOR_VERSION="${SIMULATOR_VERSION:-0.9.3}"
 URL="http://127.0.0.1:${PORT}"
 CACHE_DIR="/tmp/cc-g2-sim/.npm-cache"
 LOG_DIR="/tmp/cc-g2-sim"

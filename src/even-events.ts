@@ -92,13 +92,6 @@ export function normalizeHubEvent(event: HubEventLike): NormalizedG2Event {
   }
 }
 
-/**
- * SDK quirk: CLICK_EVENT(0) can be normalized to undefined on text/list payloads.
- */
-export function isTapEventType(eventType: number | undefined): boolean {
-  return eventType === G2_EVENT.CLICK
-}
-
 export function isDoubleTapEventType(eventType: number | undefined): boolean {
   return eventType === G2_EVENT.DOUBLE_CLICK
 }

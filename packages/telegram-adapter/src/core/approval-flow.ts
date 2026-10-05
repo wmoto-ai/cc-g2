@@ -1,4 +1,4 @@
-// 承認 1 件のライフサイクルを所有する中核フロー(plan §5.4)。
+// 承認 1 件のライフサイクルを所有する中核フロー。
 // approvalId 単位で処理を直列化し、SSE と reconciliation の同時着火による二重投稿を防ぐ。
 // decide は自動リトライしない — 失敗はユーザーに提示して再タップさせる(二重送信より安全)。
 import type { HubClient } from '../hub/client'
@@ -111,7 +111,7 @@ export class ApprovalFlow {
         sessionLabel,
         preview,
       })
-      // 送信成功後に state 記録(失敗時は未投稿のまま → reconciliation が再試行。plan §12)
+      // 送信成功後に state 記録(失敗時は未投稿のまま → reconciliation が再試行)
       const { messageId } = await this.sender.sendMessage(this.chatId, text, {
         replyMarkup: approvalKeyboard(approval.id),
       })

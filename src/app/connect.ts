@@ -7,7 +7,6 @@
 import { initBridge } from '../bridge'
 import { log } from '../log'
 import { appConfig, canUseGroqStt, canUseOpenaiRealtimeStt, canUseSonioxStt } from '../config'
-import { getWebSpeechSupport } from '../stt/webspeech'
 import { errorMessage } from '../app/format'
 import { t } from '../i18n'
 import type { AppContext } from './context'
@@ -35,7 +34,7 @@ export async function connectGlasses(ctx: AppContext): Promise<void> {
     ctx.connection = await initBridge()
     // G2 ミラー: bridge を観測タップでラップする（描画前のここで1回だけ。
     // render-core の WeakMap キーは conn.bridge 参照のため途中差し替え禁止。
-    // 詳細は src/mirror/bridge-tap.ts を参照。
+    // src/mirror/bridge-tap.ts 参照）
     if (ctx.mirror && ctx.connection.bridge) {
       ctx.connection.bridge = wrapBridgeForMirror(ctx.connection.bridge, ctx.mirror)
       log('G2ミラー: bridge 観測タップを有効化')
@@ -60,7 +59,6 @@ export async function connectGlasses(ctx: AppContext): Promise<void> {
       if (!ctx.deviceStatusListenerAttached) {
         try {
           ctx.connection.bridge.onDeviceStatusChanged((status) => {
-            if (typeof status.isWearing === 'boolean') ctx.deviceWearing = status.isWearing
             log(
               `DeviceStatus: connectType=${status.connectType}, wearing=${status.isWearing}, battery=${status.batteryLevel}%`,
             )
@@ -76,12 +74,6 @@ export async function connectGlasses(ctx: AppContext): Promise<void> {
       log(
         `STT設定: enabled=${appConfig.sttEnabled ? 'yes' : 'no'}, forceError=${appConfig.sttForceError ? 'yes' : 'no'}, provider=${appConfig.sttProvider}, mode=${canUseOpenaiRealtimeStt() || canUseSonioxStt() ? 'realtime' : canUseGroqStt() ? 'hub' : 'mock'}`,
       )
-      if (appConfig.webSpeechCompare) {
-        const cap = getWebSpeechSupport()
-        log(
-          `Web Speech API可否: SpeechRecognition=${cap.speechRecognition ? 'yes' : 'no'}, webkitSpeechRecognition=${cap.webkitSpeechRecognition ? 'yes' : 'no'}`,
-        )
-      }
       ctx.speechCapabilityLogged = true
     }
 

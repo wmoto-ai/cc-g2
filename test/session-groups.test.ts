@@ -141,7 +141,7 @@ describe('formatSessionRow', () => {
 describe('sessionShortName', () => {
   it('g2- とハッシュを除去して短縮', () => {
     expect(sessionShortName({ tmuxTarget: 'g2-cc-g2-4c4a:0.0' })).toBe('cc-g2')
-    expect(sessionShortName({ tmuxTarget: 'g2-minimalmem-246c:0.0' })).toBe('minima')
+    expect(sessionShortName({ tmuxTarget: 'g2-sampleproj-246c:0.0' })).toBe('sample')
   })
 
   it('herdr エントリは label を優先(全部 "herdr" 表示になる問題の回避)', () => {

@@ -7,7 +7,7 @@ import { errorMessage } from '../logger'
 import { escapeHtml } from '../telegram/format'
 import type { StateStore } from './state'
 
-/** reply-relay(tmux send-keys)の複数行挙動が未検証のため 1 行に正規化する(plan §8) */
+/** reply-relay(tmux send-keys)の複数行挙動が未検証のため 1 行に正規化する */
 export function normalizeOneLine(text: string): string {
   return text.replace(/\s*\n+\s*/g, ' ').trim()
 }

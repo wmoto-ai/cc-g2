@@ -18,28 +18,30 @@ Even G2 can open notifications, record a voice reply, and send that response bac
 - Answer Claude Code `AskUserQuestion` prompts from G2 option lists
 - Send voice comments back to Claude Code
 - Check Claude Code / Codex CLI / Copilot CLI completion notifications on G2
+- Get approvals, input prompts, and completions from dsh-tui (DeepSeek Harness TUI, local models supported) running in herdr, read from herdr's pane state and screen — no hooks needed
 - Browse recent notifications and details on the glasses
-- Display images / screenshots sent from Claude Code or Codex CLI on G2 (`scripts/g2-send-image.sh`, usage prompt is auto-injected into both CLIs at launch)
+- Display images / screenshots sent from Claude Code or Codex CLI on G2 (`scripts/g2-send-image.sh`, usage prompt is auto-injected into both CLIs at launch; other agents can run the script directly)
 - Launch Claude Code / Codex CLI sessions by voice via Even App custom AI
 
 ## Supported CLIs
 
-cc-g2 supports Claude Code / Codex CLI / Copilot CLI. Hook mechanisms and available features differ slightly per CLI.
+cc-g2 supports Claude Code / Codex CLI / Copilot CLI, plus dsh-tui running in herdr. Hook mechanisms and available features differ slightly per CLI. [herdr](https://herdr.dev) is a terminal multiplexer for coding agents (`brew install herdr`); [dsh-tui](https://github.com/ccch1mneyyy/dsh-TUI) is the DeepSeek Harness TUI, started with the `dst` command.
 
-| | Claude Code | Codex CLI | Copilot CLI |
-|---|---|---|---|
-| Launch | `cc-g2` | `cc-g2 codex` | `cc-g2 copilot` |
-| Hook mechanism | HTTP hook (`--settings`) | command hook (`-c hooks=`) | hooks JSON (`$COPILOT_HOME/hooks/cc-g2.json`) |
-| Approve / deny (G2 & Telegram) | ✅ | ✅ | ✅ |
-| AskUserQuestion answers | ✅ | — | — |
-| Completion notifications | ✅ | ✅ | ✅ |
-| Reply relay (tmux / herdr key injection) | ✅ | ✅ | ✅ |
-| Local settlement detection (PostToolUse) | ✅ | ✅ (incl. auto_review) | ✅ |
-| Voice Entry session launch | ✅ | ✅ | — |
-| BYOK (local models) | — | — | ✅ (`COPILOT_PROVIDER_*`) |
+| | Claude Code | Codex CLI | Copilot CLI | dsh-tui |
+|---|---|---|---|---|
+| Launch | `cc-g2` | `cc-g2 codex` | `cc-g2 copilot` | `dst` in a herdr pane |
+| Hook mechanism | HTTP hook (`--settings`) | command hook (`-c hooks=`) | hooks JSON (`$COPILOT_HOME/hooks/cc-g2.json`) | none (herdr state transitions + screen reading) |
+| Approve / deny (G2 & Telegram) | ✅ | ✅ | ✅ | ✅ |
+| AskUserQuestion answers | ✅ | — | — | — |
+| Completion notifications | ✅ | ✅ | ✅ | ✅ |
+| Reply relay (tmux / herdr key injection) | ✅ | ✅ | ✅ | ✅ (herdr) |
+| Local settlement detection (PostToolUse) | ✅ | ✅ (incl. auto_review) | ✅ | ✅ (herdr leaves `blocked`) |
+| Voice Entry session launch | ✅ | ✅ | — | — |
+| BYOK (local models) | — | — | ✅ (`COPILOT_PROVIDER_*`) | ✅ (dsh profile) |
 
 - **Local settlement detection**: a manual approval in the terminal, or codex's automatic approval via `approvals_reviewer=auto_review`, is detected through the PostToolUse hook and auto-resolves the pending approval on the Hub (the Telegram buttons close and the G2 display updates).
-- **Image display** (see "What works today") is Claude Code / Codex CLI only (Copilot CLI has no prompt-injection mechanism).
+- **Image display** (see "What works today"): the usage prompt is auto-injected only into Claude Code / Codex CLI. Other agents can run `scripts/g2-send-image.sh` directly (it reads the Hub token file when `HUB_AUTH_TOKEN` is unset).
+- **dsh-tui**: the Hub receives herdr state transitions via `events.subscribe`, reads the approval panel (command and reason) on `blocked`, and shows it on G2. Approve injects `1`, deny injects `2` (plus an optional comment). Only supported when running in herdr.
 - Local settlement detection for Copilot CLI is implemented but not yet verified on real hardware.
 
 ## Known limitations
@@ -53,7 +55,7 @@ cc-g2 has two transport modes.
 **hub mode** (home / same LAN / Tailscale — for development, QR launch, sideloading):
 
 ```text
-PC (Claude Code / Codex CLI + Hub + Voice Entry) <-> iPhone (Even App + Vite UI) <-> Even G2
+PC (agents + cc-g2-server: Hub / G2 web UI / Voice Entry) <-> iPhone (Even App) <-> Even G2
 ```
 
 **telegram mode** (on the go / primary path for the Store build — works without reachability to the Hub or Tailscale):
@@ -62,13 +64,15 @@ PC (Claude Code / Codex CLI + Hub + Voice Entry) <-> iPhone (Even App + Vite UI)
 Mac adapter (cc-tg bot, Hub subscriber) <-Bot API-> Telegram <-MTProto/userbot-> iPhone (Even App + cc-g2 WebView) <-> Even G2
 ```
 
-- **Notification Hub** (`:8787`) handles notifications and approval flow
-- **Vite UI** (`:5173`) provides the G2 companion web UI
-- **Voice Entry** (`:8797`) launches sessions by voice (optional)
+- **cc-g2-server** runs the following in one process (`server/cc-g2-server.mjs`). Set `CC_G2_SLIM=0` to go back to separate processes
+  - **Notification Hub** (`:8787`) handles notifications and approval flow, and receives herdr pane state via `events.subscribe` (if the subscription drops, it falls back to listing every 30 seconds and resubscribes)
+  - **G2 web UI** (`:5173`) serves the built `dist/` (use `pnpm dev` for Vite during development)
+  - **Voice Entry** (`:8797`) launches sessions by voice (optional)
+  - **Telegram adapter** runs in-process when `TG_ADAPTER_ENABLED=1`
 - **Per-CLI hooks** (Claude Code: HTTP hook / Codex CLI: command hook / Copilot CLI: hooks JSON) send permission requests to the Hub
 - **Telegram adapter** subscribes to the Hub and delivers approvals, notifications, and images to Telegram → [packages/telegram-adapter](packages/telegram-adapter/README.md)
 
-> Host / ports (the Hub and Vite bind to `0.0.0.0`; `:8787` / `:5173` / `:8797`) can be overridden with environment variables (`HUB_PORT` / `VITE_PORT` / `CC_G2_VOICE_ENTRY_PORT`, etc.).
+> Host / ports (bound to `0.0.0.0`; `:8787` / `:5173` / `:8797`) can be overridden with environment variables (`HUB_PORT` / `VITE_PORT` / `CC_G2_VOICE_ENTRY_PORT`, etc.).
 
 The Hub is intended to mirror and answer explicit permission prompts. It should not broaden Claude Code / Codex CLI permissions or override user / org policy outside the normal `approve` / `deny` flow.
 
@@ -83,9 +87,9 @@ telegram mode reproduces the G2 experience (notification list, detail, approval,
 
 ## Recommended setup
 
-`cc-g2` works best with a setup based on **tmux + Tailscale + iPhone + Even G2**.
+`cc-g2` works best with a setup based on **tmux or herdr + Tailscale + iPhone + Even G2**.
 
-- **tmux** keeps the Claude Code / Codex CLI session alive and supports the reply relay flow
+- **tmux / herdr** keeps agent sessions alive and supports the reply relay flow. Agents without hooks, such as dsh-tui, require herdr
 - **Tailscale** makes it easier for the iPhone to reach the local Hub safely. You can also use a local IP on the same WiFi, but Tailscale is convenient for remote or cross-network access
 - **Moshi or similar helper notifications** are optional, but useful when you are away from your desk
 - **G2 notifications** are useful for checking pending approvals and completions
@@ -179,7 +183,7 @@ For Copilot CLI, set `COPILOT_MODEL` / `COPILOT_PROVIDER_*` in your environment 
 | `cc-g2 copilot` | Same as `cc-g2 --copilot` |
 | `cc-g2-copilot` | Alias for `cc-g2 --copilot` |
 | `cc-g2 !` | Restart infra first |
-| `cc-g2 stop` | Stop Hub + Vite |
+| `cc-g2 stop` | Stop cc-g2-server (or the Hub, Vite, Voice Entry, and Telegram adapter in the legacy layout) |
 | `cc-g2 status` | Check runtime status |
 | `cc-g2 doctor` | Check dependencies and services |
 | `cc-g2 -p "prompt"` | Launch Claude Code with a prompt |
@@ -282,7 +286,7 @@ Repository candidates are scanned from `CC_G2_REPO_ROOTS` (default: `~/Repos`).
 Renders an approximation of what the G2 is currently showing on a 576x288 canvas (disabled by default, opt-in).
 
 - **In-page mirror**: add `?mirror=1` to the URL opened in the Even App to show a "G2 Mirror" card
-- **Remote viewer**: add `?mirrorpub=1` (or start Vite with `VITE_MIRROR_PUBLISH=1`), then open `http://<pc-ip>:5173/mirror.html` from any device on the same LAN / tailnet. The viewer only talks to its own origin's `/api` (Vite dev proxy → Hub)
+- **Remote viewer**: add `?mirrorpub=1` (or build the app / run `pnpm dev` with `VITE_MIRROR_PUBLISH=1`), then open `http://<pc-ip>:5173/mirror.html` from any device on the same LAN / tailnet. The viewer only talks to its own origin's `/api` (normally cc-g2-server serves the page and `/api` on the same origin; under `pnpm dev` the Vite dev proxy forwards to the Hub)
 - **Camera overlay (for SNS screenshots)**: getUserMedia needs HTTPS, so expose the viewer via tailscale serve:
 
 ```bash
@@ -311,6 +315,8 @@ pnpm test:watch
 - If Voice Entry won't start: check `cc-g2 status` and make sure `CC_G2_VOICE_ENTRY_ENABLED=0` is not set in `.env.local`
 - If Even App can't connect: verify the Bearer token with `cat tmp/voice-entry/voice-entry-token` and check Tailscale connectivity
 - If Hub history files grow too large: stop the Hub (`cc-g2 stop`), then run `node scripts/prune-hub-history.mjs --dry-run` to preview and `node scripts/prune-hub-history.mjs` to prune (keeps 14 days by default, with automatic backup)
+- **If all notifications suddenly stop (only images arrive)**: when Claude Code's folder trust is not accepted, interactive sessions silently disable all hooks and the statusLine. Since 2.1.232, git repositories no longer inherit trust from a parent directory, so a CLI auto-update can break every repository at once (and the trust confirmation dialog is never shown). cc-g2 checks this at claude launch and offers to repair it. To check manually: `jq -r --arg d "$PWD" '.projects[$d].hasTrustDialogAccepted' ~/.claude.json` (anything other than `true` means not accepted)
+- **403 `Host not allowed` from the Hub / G2 app**: the Hub only accepts requests whose Host header is an IP address, `localhost`, or `*.ts.net` (DNS rebinding protection). If you reach it through your own hostname, add it to `HUB_ALLOWED_HOSTS` in `.env.local` and restart with `cc-g2 !`
 - To see diagnostic logs: the URL parameter `?logmirror=1` (or the build-time `VITE_LOG_MIRROR`) mirrors info-level logs onto the screen. This is **for diagnostics only — do not use it routinely** (it increases log volume and may render sensitive information on screen)
 
 ## Acknowledgments
@@ -321,6 +327,8 @@ pnpm test:watch
 ## Links
 
 - [Known limitations](docs/known-limitations.md)
+- [herdr](https://herdr.dev) — terminal multiplexer for coding agents (used for the dsh-tui path)
+- [dsh-tui](https://github.com/ccch1mneyyy/dsh-TUI) — DeepSeek Harness TUI
 - <https://getmoshi.app/articles/mac-remote-endless-agent-setup>
 
 ## License

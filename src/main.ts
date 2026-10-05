@@ -4,10 +4,7 @@ import { createGlassesUI, buildNotificationActions } from './glasses-ui'
 import { log } from './log'
 import { transcribePcmChunks } from './stt/groq'
 import { formatForG2ScrollableText } from './g2/text-format'
-import { appConfig, canUseOpenaiRealtimeStt, canUseSonioxStt, createHubHeaders } from './config'
-import { OpenAIRealtimeSTT } from './stt/openai-realtime'
-import { SonioxRealtimeSTT } from './stt/soniox-realtime'
-import { getWebSpeechSupport, startWebSpeechCapture } from './stt/webspeech'
+import { appConfig, createHubHeaders } from './config'
 import { errorMessage, escapeHtml, formatRelativeTime, replyStatusLabel, screenLabel } from './app/format'
 import { createAppContext } from './app/context'
 import { detectSettingsStore } from './app/settings-store'
@@ -173,13 +170,6 @@ appRoot.innerHTML = `
       </section>
 
       <section class="tool-block">
-        <h2>${t('dev_approval_test_title')}</h2>
-        <p class="tool-copy">${t('dev_approval_copy')}</p>
-        <button id="approval-btn" class="btn" type="button">${t('dev_send_approval')}</button>
-        <span id="approval-result" class="status-line">${t('dev_not_run')}</span>
-      </section>
-
-      <section class="tool-block">
         <h2>${t('dev_mic_test_title')}</h2>
         <button id="mic-start-btn" class="btn" type="button">${t('dev_rec_start')}</button>
         <button id="mic-stop-btn" class="btn" type="button" disabled>${t('dev_rec_stop')}</button>
@@ -206,7 +196,7 @@ const glassesUI = createGlassesUI()
 const tgBoot = transportMode === 'telegram' ? createTelegramBoot(settingsStore) : null
 const transport = tgBoot ? tgBoot.transport : createHubTransport()
 const notifClient = transport.notifications
-// G2 ミラー（?mirror=1 / ?mirrorpub=1 時のみ生成）
+// G2 ミラー（?mirror=1 / ?mirrorpub=1 時のみ生成。G2 へ送った描画を近似再現し、ページ内 canvas や Hub 経由の mirror.html に表示する）
 const mirrorStore = appConfig.mirrorView || appConfig.mirrorPublish ? createMirrorStore() : null
 // 共有可変状態は AppContext 1オブジェクトに集約（生成はここで1回のみ。src/app/context.ts 参照）
 const ctx = createAppContext({ glassesUI, transport, mirror: mirrorStore, ui: { setPill, updateDashboard, updateNotifInfo } })
@@ -413,7 +403,7 @@ document.getElementById('connect-btn')!.addEventListener('click', () => {
 })
 
 // --- Text Display ---
-// 注意: 以下4つは dev UI（devUiEnabled 時のみ DOM に存在）のボタン。
+// 注意: 以下3つは dev UI（devUiEnabled 時のみ DOM に存在）のボタン。
 // `!` だと dev UI 非表示時に addEventListener が throw してページ全体が死ぬため `?.` で配線する。
 document.getElementById('send-text-btn')?.addEventListener('click', async () => {
   const text = (document.getElementById('display-text') as HTMLInputElement).value
@@ -423,27 +413,6 @@ document.getElementById('send-text-btn')?.addEventListener('click', async () => 
   }
   log(`テキスト送信: "${text}"`)
   await glassesUI.showText(ctx.connection, text)
-})
-
-// --- Approval UI ---
-document.getElementById('approval-btn')?.addEventListener('click', async () => {
-  const resultEl = document.getElementById('approval-result')!
-  if (!ctx.connection) {
-    log('未接続です。先にConnectしてください。')
-    return
-  }
-  resultEl.textContent = t('dev_approval_waiting')
-  log('承認リクエスト送信: ファイル編集の承認')
-
-  const result = await glassesUI.requestApproval(ctx.connection, {
-    title: t('dev_approval_title'),
-    detail: t('dev_approval_detail'),
-    options: ['Approve', 'Deny'],
-  })
-
-  resultEl.textContent = `${t('dev_result')}: ${result}`
-  resultEl.classList.add(result === 'Approve' ? 'approved' : 'rejected')
-  log(`承認結果: ${result}`)
 })
 
 // --- Mic ---
@@ -465,26 +434,6 @@ document.getElementById('mic-start-btn')?.addEventListener('click', async () => 
   micStatus.textContent = t('mic_recording')
   audioInfo.textContent = ''
   log('マイク開始')
-
-  ctx.webSpeechFinalText = ''
-  ctx.webSpeechInterimText = ''
-  ctx.webSpeechError = ''
-  if (appConfig.webSpeechCompare) {
-    const wsCap = getWebSpeechSupport()
-    if (wsCap.available) {
-      try {
-        ctx.webSpeechSession = startWebSpeechCapture(({ finalText, interimText }) => {
-          ctx.webSpeechFinalText = finalText
-          ctx.webSpeechInterimText = interimText
-        })
-        log('Web Speech比較キャプチャ開始（ブラウザ/端末マイク系）')
-      } catch (err) {
-        ctx.webSpeechSession = null
-        ctx.webSpeechError = errorMessage(err)
-        log(`Web Speech開始失敗: ${ctx.webSpeechError}`)
-      }
-    }
-  }
 
   // Start realtime STT if configured(dev マイクテストも transport 経由で生成)
   const devRealtimeStt = ctx.transport.createRealtimeStt()
@@ -526,22 +475,6 @@ document.getElementById('mic-stop-btn')?.addEventListener('click', async () => {
 
   await ctx.connection.stopAudio()
   ctx.isRecording = false
-  if (appConfig.webSpeechCompare && ctx.webSpeechSession) {
-    try {
-      const ws = await ctx.webSpeechSession.stop()
-      ctx.webSpeechFinalText = ws.finalText
-      ctx.webSpeechInterimText = ws.interimText
-      if (ws.error) ctx.webSpeechError = ws.error
-      log(
-        `Web Speech停止: final=${ws.finalText ? 'yes' : 'no'}, interim=${ws.interimText ? 'yes' : 'no'}${ws.error ? `, error=${ws.error}` : ''}`,
-      )
-    } catch (err) {
-      ctx.webSpeechError = errorMessage(err)
-      log(`Web Speech停止失敗: ${ctx.webSpeechError}`)
-    } finally {
-      ctx.webSpeechSession = null
-    }
-  }
   startBtn.disabled = false
   stopBtn.disabled = true
 
@@ -568,22 +501,10 @@ document.getElementById('mic-stop-btn')?.addEventListener('click', async () => {
       `STT provider: ${stt.provider}${stt.model ? ` (${stt.model})` : ''}`,
       `STT text: ${stt.text || '（空）'}`,
     ]
-    if (appConfig.webSpeechCompare) {
-      const cap = getWebSpeechSupport()
-      infoLines.push(
-        `Web Speech API: SpeechRecognition=${cap.speechRecognition ? 'yes' : 'no'}, webkitSpeechRecognition=${cap.webkitSpeechRecognition ? 'yes' : 'no'}`,
-        `Web Speech final: ${ctx.webSpeechFinalText || '（空）'}`,
-        `Web Speech interim: ${ctx.webSpeechInterimText || '（空）'}`,
-        `Web Speech error: ${ctx.webSpeechError || 'なし'}`,
-      )
-    }
     infoLines.push('', 'G2表示用:', formatted)
     audioInfo.textContent = infoLines.join('\n')
     log(`STT完了: provider=${stt.provider}${stt.model ? ` model=${stt.model}` : ''}`)
     log(`STT結果: ${stt.text || '（空）'}`)
-    if (appConfig.webSpeechCompare && ctx.webSpeechFinalText) {
-      log(`Web Speech結果(比較): ${ctx.webSpeechFinalText}`)
-    }
     await glassesUI.showText(ctx.connection, formatted)
   } catch (err) {
     if (ctx.realtimeSTT) { ctx.realtimeSTT.abort(); ctx.realtimeSTT = null }

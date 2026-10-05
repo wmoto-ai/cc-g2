@@ -16,12 +16,12 @@
   },
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",
-    "grammy": "^1.44.0"
+    "grammy": "^1.46.0"
   },
   "devDependencies": {
-    "@types/node": "^26.0.0",
+    "@types/node": "^26.6.3",
     "tsx": "^4.19.0",
     "typescript": "^6.0.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.11"
   }
 }

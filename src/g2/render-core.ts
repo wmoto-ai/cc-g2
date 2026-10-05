@@ -6,7 +6,7 @@
  *
  * - withRenderLock の直列化範囲は「レイアウト構築（createStartUp/rebuild）＋
  *   画像転送のみ」。upgradeText はロック外。この範囲を変更してはならない
- *   （広げても狭めても実機クラッシュの前科がある。docs/refactor-plan.md 参照）。
+ *   （広げても狭めても実機クラッシュの前科がある）。
  * - rebuildPageContainer は必ず呼んでから createStartUp にフォールバックする
  *   （§2: rebuild 呼び出し自体にイベントルーティング登録の副作用がある）。
  * - createStartUp 失敗時の連続リトライ禁止（CREATE/REBUILD 連発はホストを殺す）。
@@ -36,7 +36,7 @@ import { LIST_ITEM_MAX_BYTES, truncateByBytes } from './text-format'
 // updateImageRawData がハングすると renderLock が解放されず全UIが固まるため必須。
 export const IMAGE_TILE_TIMEOUT_MS = 10000
 
-export type LayoutName = 'base' | 'text' | 'idle-launcher' | 'approval' | 'notif-list' | 'session-list' | 'notif-detail' | 'notif-actions' | 'image-detail' | 'ask-question' | 'reply-recording' | 'reply-confirm-actions' | 'reply-result'
+export type LayoutName = 'base' | 'text' | 'idle-launcher' | 'notif-list' | 'session-list' | 'notif-detail' | 'notif-actions' | 'image-detail' | 'ask-question' | 'reply-recording' | 'reply-confirm-actions' | 'reply-result'
 
 export type HeaderListPageOptions = {
   headerContainerName: string

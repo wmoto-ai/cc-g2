@@ -1,3 +1,4 @@
+import { isAllowedHost } from './host-guard.mjs'
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
@@ -49,6 +50,7 @@ import { handleSseEvents } from './sse.mjs'
 import { handlePermissionRequestHook, handleToolExecutedHook } from './hooks.mjs'
 import { handleSttTranscription, handleSttRealtimeToken, handleSttSonioxToken } from './stt-routes.mjs'
 import { handleLocationPost, handleLocationGet } from './location.mjs'
+import { handleStatic, staticDir } from './static.mjs'
 // session-activity モニター（tmux ポーリング interval）は import 時に起動する（従来挙動と同順）
 import './session-activity.mjs'
 
@@ -128,9 +130,14 @@ async function bootstrap() {
   )
 }
 
-const server = createServer(async (req, res) => {
+async function handleRequest(req, res) {
   const method = req.method || 'GET'
   try {
+
+  // DNS rebinding 対策: 許可外の Host は CORS・認証・静的配信より前に拒否する（host-guard.mjs）
+  if (!isAllowedHost(req.headers.host)) {
+    return sendJson(res, 403, { ok: false, error: 'Host not allowed' })
+  }
 
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
   const pathname = url.pathname
@@ -152,6 +159,8 @@ const server = createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       service: 'notification-hub',
+      // 統合サーバ（server/cc-g2-server.mjs）経由かどうか。scripts/lib/infra.sh が旧構成と見分けるのに使う
+      server: process.env.CC_G2_SERVER === '1' ? 'cc-g2-server' : 'notification-hub',
       approvalMode: hubApprovalMode,
       notifications: notifications.length,
       replies: replies.length,
@@ -340,6 +349,9 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  // G2 アプリ（dist/）。HUB_STATIC_DIR 指定時のみ。/api と /ui は上で処理済み
+  if (!pathname.startsWith('/api/') && (await handleStatic(req, res, pathname))) return
+
   if (method === 'GET' && pathname === '/') {
     return sendText(
       res,
@@ -388,7 +400,9 @@ const server = createServer(async (req, res) => {
     }
     res.destroy()
   }
-})
+}
+
+const server = createServer(handleRequest)
 
 // ハンドラ外（listen 前後・タイマー等）の取りこぼしを hub.log に残す。
 // unhandledRejection は継続、uncaughtException は Node の指針に従い
@@ -404,3 +418,13 @@ await bootstrap()
 server.listen(port, host, () => {
   log(`notification-hub listening on http://${host}:${port}`)
 })
+// G2 アプリ用の追加ポート（既定 5173 運用時、端末に保存済みの URL をそのまま使うため）。
+// 同じハンドラで API も答えるので、mirror.html の同一オリジン /api もここで受ける
+const appPort = Number(process.env.HUB_APP_PORT || 0)
+if (appPort && appPort !== port) {
+  createServer(handleRequest)
+    .on('error', (err) => log(`G2 app listen failed on ${appPort}: ${err.message}`))
+    .listen(appPort, host, () => {
+      log(`G2 app listening on http://${host}:${appPort} (static=${staticDir || 'off'})`)
+    })
+}

@@ -18,28 +18,30 @@ Even G2 で通知を開き、音声で返答し、その内容を Claude Code / 
 - **AskUserQuestion への回答**: Claude Code の質問に、G2 の選択肢リストから回答
 - **音声コメント**: 拒否時に音声で指示を返す
 - **完了通知の確認**: Claude Code / Codex CLI / Copilot CLI の完了通知を G2 で確認
+- **herdr 上の dsh-tui**: hook を持たない DeepSeek Harness TUI（ローカルモデル可）の承認・入力待ち・完了を、herdr の状態と画面から G2 に通知
 - **通知一覧 / 詳細表示**: G2 で最近の通知を確認
-- **画像表示**: Claude Code / Codex CLI から送った画像・スクリーンショットを G2 のレンズに表示（`scripts/g2-send-image.sh`、使い方プロンプトは起動時に両 CLI へ自動注入）
+- **画像表示**: Claude Code / Codex CLI から送った画像・スクリーンショットを G2 のレンズに表示（`scripts/g2-send-image.sh`、使い方プロンプトは起動時に両 CLI へ自動注入。他のエージェントもこのスクリプトを実行すれば送れる）
 - **音声でセッション起動**: G2 に話しかけて Claude Code / Codex CLI セッションを起動（Even App カスタム AI 連携）
 
 ## 対応 CLI
 
-cc-g2 は Claude Code / Codex CLI / Copilot CLI に対応しています。CLI によって使えるフック方式や機能が一部異なります。
+cc-g2 は Claude Code / Codex CLI / Copilot CLI と、herdr 上の dsh-tui に対応しています。CLI によって使えるフック方式や機能が一部異なります。[herdr](https://herdr.dev) はコーディングエージェント向けのターミナルマルチプレクサ（`brew install herdr`）、[dsh-tui](https://github.com/ccch1mneyyy/dsh-TUI) は DeepSeek Harness の TUI で、`dst` コマンドで起動します。
 
-| | Claude Code | Codex CLI | Copilot CLI |
-|---|---|---|---|
-| 起動 | `cc-g2` | `cc-g2 codex` | `cc-g2 copilot` |
-| フック方式 | HTTP hook（`--settings`） | command hook（`-c hooks=`） | hooks JSON（`$COPILOT_HOME/hooks/cc-g2.json`） |
-| 承認 / 拒否（G2・Telegram） | ✅ | ✅ | ✅ |
-| AskUserQuestion 回答 | ✅ | — | — |
-| 完了通知 | ✅ | ✅ | ✅ |
-| 返信リレー（tmux / herdr キー注入） | ✅ | ✅ | ✅ |
-| ローカル決着検知（PostToolUse） | ✅ | ✅（auto_review 含む） | ✅ |
-| 音声セッション起動（Voice Entry） | ✅ | ✅ | — |
-| BYOK（ローカルモデル） | — | — | ✅（`COPILOT_PROVIDER_*`） |
+| | Claude Code | Codex CLI | Copilot CLI | dsh-tui |
+|---|---|---|---|---|
+| 起動 | `cc-g2` | `cc-g2 codex` | `cc-g2 copilot` | herdr のペインで `dst` |
+| フック方式 | HTTP hook（`--settings`） | command hook（`-c hooks=`） | hooks JSON（`$COPILOT_HOME/hooks/cc-g2.json`） | なし（herdr の状態遷移 + 画面読み取り） |
+| 承認 / 拒否（G2・Telegram） | ✅ | ✅ | ✅ | ✅ |
+| AskUserQuestion 回答 | ✅ | — | — | — |
+| 完了通知 | ✅ | ✅ | ✅ | ✅ |
+| 返信リレー（tmux / herdr キー注入） | ✅ | ✅ | ✅ | ✅（herdr） |
+| ローカル決着検知（PostToolUse） | ✅ | ✅（auto_review 含む） | ✅ | ✅（herdr の blocked 解除） |
+| 音声セッション起動（Voice Entry） | ✅ | ✅ | — | — |
+| BYOK（ローカルモデル） | — | — | ✅（`COPILOT_PROVIDER_*`） | ✅（dsh のプロファイル） |
 
 - **ローカル決着検知**: ターミナルでの手動承認や、codex の `approvals_reviewer=auto_review` による自動承認を PostToolUse フックで検知し、Hub の承認を自動解決します（Telegram のボタンが閉じ、G2 の表示も更新されます）。
-- **画像表示**（「できること」参照）は Claude Code / Codex CLI のみ対応です（Copilot CLI にはプロンプト注入の手段がないため）。
+- **画像表示**（「できること」参照）の使い方プロンプトの自動注入は Claude Code / Codex CLI のみです。その他のエージェントは `scripts/g2-send-image.sh` を直接実行すれば送れます（`HUB_AUTH_TOKEN` が無ければ Hub の token ファイルを読みます）。
+- **dsh-tui**: herdr の `events.subscribe` で状態遷移を受け、`blocked` で承認パネル（コマンドと理由）を読み取って G2 に出します。承認は `1`、拒否は `2`（＋コメント）をキー注入します。herdr で動かしている場合のみ対応です。
 - Copilot CLI のローカル決着検知は実装済みですが、実機未検証です。
 
 ## 既知の制限
@@ -56,8 +58,9 @@ cc-g2 には 2 つのトランスポートモードがあります。
 ┌──────────────┐   Tailscale    ┌──────────────┐   BLE    ┌─────────┐
 │ PC (Mac)     │ ◄───────────► │ iPhone       │ ◄──────► │ Even G2 │
 │ Claude/Codex │               │ Even App     │          │         │
-│ Hub (:8787)  │               │ Vite (:5173) │          │         │
-│ Voice(:8797) │               │              │          │         │
+│ cc-g2-server │               │              │          │         │
+│ :8787/:5173/ │               │              │          │         │
+│ :8797        │               │              │          │         │
 └──────────────┘               └──────────────┘          └─────────┘
 ```
 
@@ -71,13 +74,15 @@ cc-g2 には 2 つのトランスポートモードがあります。
 └──────────────┘              └──────────┘           └──────────────┘          └─────────┘
 ```
 
-- **Notification Hub** (`:8787`): 通知と承認の中央管理
-- **Vite** (`:5173`): G2 向け Web UI
-- **Voice Entry** (`:8797`): 音声セッション起動（オプション）
+- **cc-g2-server**: 以下を 1 プロセスで動かす常駐サーバ（`server/cc-g2-server.mjs`）。`CC_G2_SLIM=0` で従来の個別プロセス構成に戻せます
+  - **Notification Hub** (`:8787`): 通知と承認の中央管理。herdr のペイン状態も `events.subscribe` で受け取る（購読が切れている間は 30 秒ごとの一覧取得で補い、自動で再購読）
+  - **G2 Web UI** (`:5173`): ビルド済みの `dist/` を配信（開発時は `pnpm dev` で Vite）
+  - **Voice Entry** (`:8797`): 音声セッション起動（オプション）
+  - **Telegram アダプタ**: `TG_ADAPTER_ENABLED=1` のときプロセス内で起動
 - **各 CLI のフック**（Claude Code: HTTP hook / Codex CLI: command hook / Copilot CLI: hooks JSON）: PermissionRequest を Hub に送信
 - **Telegram アダプタ**: Hub を購読して Telegram に承認 UI・通知・画像を届ける常駐アダプタ → [packages/telegram-adapter](packages/telegram-adapter/README.md)
 
-> ホスト / ポート（Hub・Vite の `0.0.0.0` bind、`:8787` / `:5173` / `:8797`）は環境変数（`HUB_PORT` / `VITE_PORT` / `CC_G2_VOICE_ENTRY_PORT` 等）で上書きできます。
+> ホスト / ポート（`0.0.0.0` bind、`:8787` / `:5173` / `:8797`）は環境変数（`HUB_PORT` / `VITE_PORT` / `CC_G2_VOICE_ENTRY_PORT` 等）で上書きできます。
 
 Hub は明示的な permission prompt を中継して応答するためのもので、Claude Code / Codex CLI のユーザー設定や組織ポリシーを上書きして独自に広く許可するものではありません。
 
@@ -92,9 +97,9 @@ telegram モードは、Hub や Tailscale への到達性がなくても G2 体�
 
 ## 推奨構成
 
-`cc-g2` は、**tmux + Tailscale + iPhone + Even G2** の構成で使うと安定しやすいです。
+`cc-g2` は、**tmux または herdr + Tailscale + iPhone + Even G2** の構成で使うと安定しやすいです。
 
-- **tmux**: Claude Code / Codex CLI セッションを維持し、reply relay の前提になります
+- **tmux / herdr**: エージェントのセッションを維持し、reply relay の前提になります。dsh-tui など hook を持たないエージェントは herdr が必要です
 - **Tailscale**: iPhone からローカル Hub へ安全にアクセスしやすくなります。同じ WiFi ならローカル IP でも接続可能ですが、外出先や別ネットワークからの接続には Tailscale が便利です
 - **Moshi などの補助通知**: 必須ではありませんが、離席中の通知確認を補助しやすくなります
 - **通知運用**: G2 で承認待ちや完了を確認できます
@@ -162,7 +167,7 @@ cc-g2
 
 起動時に以下が自動で行われます。
 
-1. Hub + Vite をバックグラウンド起動
+1. cc-g2-server（Hub・Web UI・Voice Entry・Telegram アダプタ）をバックグラウンド起動。`dist/` が古ければ先に `vite build`
 2. Claude Code の hook を注入
 3. tmux セッション作成
 4. QR コード表示
@@ -212,9 +217,9 @@ cc-g2 copilot
 | `cc-g2 copilot` | `cc-g2 --copilot` と同じ |
 | `cc-g2-copilot` | `cc-g2 --copilot` のエイリアス |
 | `cc-g2 !` | インフラ再起動してから起動 |
-| `cc-g2 stop` | Hub + Vite を停止 |
+| `cc-g2 stop` | cc-g2-server（旧構成では Hub・Vite・Voice Entry・Telegram アダプタ）を停止 |
 | `cc-g2 status` | 起動状況を確認 |
-| `cc-g2 doctor` | 依存コマンド・Tailscale・Hub/Vite・node_modules を確認 |
+| `cc-g2 doctor` | 依存コマンド・Tailscale・Hub/Web UI・node_modules を確認 |
 | `cc-g2 -p "プロンプト"` | プロンプト付きで Claude Code を起動 |
 
 環境変数:
@@ -377,10 +382,10 @@ Even App で開く URL に `?mirror=1` を付けると、コンソールに「G2
 
 ### 別端末から見る（ビューア配信）
 
-1. Even App 側の URL に `?mirrorpub=1` を付ける（または Vite を `VITE_MIRROR_PUBLISH=1` で起動）
+1. Even App 側の URL に `?mirrorpub=1` を付ける（または `VITE_MIRROR_PUBLISH=1` でアプリをビルド / `pnpm dev` 起動）
 2. 同じ LAN / tailnet の端末で `http://<PCのIP>:5173/mirror.html` を開く
 
-ビューアは同一 origin の `/api`（Vite dev proxy → Hub）だけを使うため、Hub のポートを意識する必要はありません。
+ビューアは同一 origin の `/api` だけを使うため、Hub のポートを意識する必要はありません（通常は cc-g2-server がページと `/api` を同じ origin で配信し、`pnpm dev` 時は Vite dev proxy が Hub へ中継します）。
 
 ### カメラ重畳（SNS 共有用スクショ）
 
@@ -424,19 +429,24 @@ cc-g2/
 ├── src/                      # G2 Web UI (TypeScript + Vite)
 │   ├── main.ts               #   エントリ（DOM 構築・dashboard・配線）
 │   ├── glasses-ui.ts         #   G2 画面 API のファサード
+│   ├── i18n.ts               #   UI 文言 (ja / en)
 │   ├── app/                  #   アプリ状態 (AppContext)・接続・整形
 │   ├── hub/                  #   Hub との SSE 通信
+│   ├── transport/            #   外部との接続口 (hub / telegram)
 │   ├── g2/                   #   G2 描画基盤 (render-core ※凍結)・テキスト整形・イベント処理
 │   │   └── screens/          #   画面別モジュール（通知 / 質問 / 返信 / 画像）
 │   ├── mirror/               #   G2 画面ミラー（bridge タップ・canvas 描画・Hub 配信・ビューア）
-│   ├── stt/                  #   音声認識 (Groq / OpenAI / Soniox / WebSpeech)
+│   ├── stt/                  #   音声認識 (Groq / OpenAI / Soniox)
 │   ├── image/                #   画像タイル変換パイプライン
 │   └── audio/                #   WAV エンコード
+├── server/cc-g2-server.mjs   # 統合サーバ（Hub + G2 アプリ配信 + Voice Entry + Telegram を 1 プロセスで起動）
 ├── server/notification-hub/  # Notification Hub（index.mjs + 機能別モジュール）
 ├── server/voice-entry/       # Voice Entry サーバー
+├── packages/telegram-adapter/ # Telegram adapter（統合サーバから in-process 起動、単体起動も可）
 ├── scripts/                  # 起動 / hook / simulator 用スクリプト
 │   └── lib/                  #   cc-g2.sh の分割ライブラリ（tokens / infra / tmux / agent-launch / doctor）
 ├── test/                     # テスト
+├── docs/                     # 既知の制限・スクリーンショット
 ├── .claude/settings.json     # この repo 作業用の設定
 └── .env.example              # 環境変数テンプレート
 ```
@@ -450,7 +460,9 @@ cc-g2/
 - **Voice entry が起動しない**: `cc-g2 status` で確認。`.env.local` に `CC_G2_VOICE_ENTRY_ENABLED=0` が設定されていないか確認し、`cc-g2 !` で再起動
 - **Even App から接続できない**: `cat tmp/voice-entry/voice-entry-token` でトークンを確認。Even App の Bearer トークンと一致しているか、Tailscale で iPhone → Mac に到達できるかも確認
 - **設定変更が反映されない**: `cc-g2 !` でインフラを再起動。tmux セッション外からは `cc-g2 stop && cc-g2`
+- **通知が突然一切来なくなった（画像だけ届く）**: Claude Code の folder trust が未承認だと、対話セッションの hooks / statusLine が黙って全無効化されます。2.1.232 から git リポジトリは親ディレクトリの信頼を継承しなくなったため、CLI 自動更新を境に全リポジトリで一斉に発症することがあります（信頼確認ダイアログは表示されません）。cc-g2 は claude 起動時に検査して修復を提案します。手動確認は `jq -r --arg d "$PWD" '.projects[$d].hasTrustDialogAccepted' ~/.claude.json`（`true` 以外なら未承認）
 - **Hub の履歴ファイルが肥大化した**: `tmp/notification-hub/*.jsonl` は無期限に追記されます。`cc-g2 stop` してから `node scripts/prune-hub-history.mjs --dry-run` で削減量を確認し、`node scripts/prune-hub-history.mjs`（デフォルト14日保持、実行前に自動バックアップ）で間引けます
+- **Hub / G2 アプリが 403 `Host not allowed` を返す**: Hub は Host ヘッダが IP アドレス・`localhost`・`*.ts.net` のリクエストだけ受け付けます（DNS rebinding 対策）。自前のホスト名でアクセスする場合は `.env.local` の `HUB_ALLOWED_HOSTS` に追加して `cc-g2 !` で再起動してください
 - **診断ログを見たい**: URL パラメータ `?logmirror=1`（またはビルド時 `VITE_LOG_MIRROR`）で info レベルのログを画面にミラーできます。**診断用途のみ・常用は禁止**です（ログ量が増え、機密情報を画面に映す可能性があります）
 
 ## Acknowledgments
@@ -461,6 +473,8 @@ cc-g2/
 ## 既知の制限 / 参考リンク
 
 - [docs/known-limitations.md](docs/known-limitations.md)
+- [herdr](https://herdr.dev) — コーディングエージェント向けターミナルマルチプレクサ（dsh-tui 経路で使用）
+- [dsh-tui](https://github.com/ccch1mneyyy/dsh-TUI) — DeepSeek Harness の TUI
 - <https://getmoshi.app/articles/mac-remote-endless-agent-setup>
 
 ## ライセンス

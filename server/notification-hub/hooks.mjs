@@ -20,7 +20,10 @@ const HOOK_POLL_INTERVAL_MS = 2_000
 
 function buildToolPreview(toolName, toolInput) {
   if (toolName === 'Bash') {
-    return toolInput?.command || ''
+    // Claude は Bash の tool_input に description（実行理由）を付ける。G2 でもコマンドの下に出す。
+    const command = toolInput?.command || ''
+    const reason = typeof toolInput?.description === 'string' ? toolInput.description.trim() : ''
+    return reason ? `${command}\n\n理由: ${reason}` : command
   } else if (toolName === 'apply_patch') {
     return buildApplyPatchPreview(toolInput)
   } else if (toolName === 'Edit') {

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Reads `{ reply, notification }` JSON from stdin.
 # 1) Always appends JSONL to RELAY_LOG_FILE.
-# 2) Optionally forwards to claude CLI as non-interactive prompts.
+# 2) Optionally forwards the reply to the agent's tmux pane (herdr targets are delegated).
 
 PAYLOAD="$(cat)"
 if [[ -z "${PAYLOAD}" ]]; then
@@ -16,9 +16,6 @@ RELAY_ENABLE_TMUX="${RELAY_ENABLE_TMUX:-0}"
 RELAY_TMUX_TARGET="${RELAY_TMUX_TARGET:-}"
 RELAY_TMUX_AUTO_DETECT="${RELAY_TMUX_AUTO_DETECT:-1}"
 RELAY_TMUX_USE_NOTIFICATION_TARGET="${RELAY_TMUX_USE_NOTIFICATION_TARGET:-1}"
-RELAY_PROJECT_DIR="${RELAY_PROJECT_DIR:-}"
-RELAY_EXTRA_NOTE="${RELAY_EXTRA_NOTE:-}"
-RELAY_ASYNC="${RELAY_ASYNC:-1}"
 RELAY_AGENT_LOG_FILE="${RELAY_AGENT_LOG_FILE:-tmp/notification-hub/reply-relay-agent.log}"
 RELAY_MESSAGE_STYLE="${RELAY_MESSAGE_STYLE:-simple}"
 RELAY_TMUX_SUBMIT_KEY="${RELAY_TMUX_SUBMIT_KEY:-}"
@@ -55,16 +52,6 @@ eval "$(
     // Shell-safe output: escape single quotes for eval
     const q = (v) => String(v || "").replace(/\x27/g, "\x27\\\x27\x27");
 
-    // summary
-    const summaryLines = [
-      "Even G2/ntfy decision received.",
-      `action=${action}`,
-      `source=${source}`,
-      `notification_id=${nid}`,
-      `title=${title}`,
-    ];
-    if (comment) summaryLines.push(`comment=${comment}`);
-
     // tmux_message
     const style = String(process.env.RELAY_MESSAGE_STYLE || "simple").toLowerCase();
     const normalize = (v) => String(v || "").replace(/^\[ACTION\]\s*/i, "").trim();
@@ -100,7 +87,6 @@ eval "$(
     const replyComment = normalize(r.comment || r.replyText || "");
 
     const lines = [
-      `summary=\x27${q(summaryLines.join("\\n"))}\x27`,
       `tmux_message=\x27${q(tmuxMsg)}\x27`,
       `notification_tmux_target=\x27${q(tmuxTarget)}\x27`,
       `notification_agent_name=\x27${q(agentName)}\x27`,
@@ -115,10 +101,6 @@ eval "$(
   '
 )"
 
-if [[ -n "$RELAY_EXTRA_NOTE" ]]; then
-  summary="${summary}\n${RELAY_EXTRA_NOTE}"
-fi
-
 # herdr ターゲット（herdr:<pane_id> プレフィックス）は tmux では解決できないため、
 # herdr バックエンド (reply-relay-herdr.sh) に委譲する。tmux 経路の挙動は変えない。
 if [[ "${RELAY_ENABLE_HERDR:-1}" == "1" && "$notification_tmux_target" == herdr:* ]]; then
@@ -127,13 +109,6 @@ if [[ "${RELAY_ENABLE_HERDR:-1}" == "1" && "$notification_tmux_target" == herdr:
   printf '%s' "$PAYLOAD" | RELAY_SKIP_PAYLOAD_LOG=1 bash "$HERDR_RELAY_SCRIPT" || rc=$?
   exit "$rc"
 fi
-
-run_in_dir() {
-  if [[ -n "$RELAY_PROJECT_DIR" ]]; then
-    cd "$RELAY_PROJECT_DIR"
-  fi
-  "$@"
-}
 
 # Agent 系プロセス判定:
 # - Claude Code native install can show as "claude" or a semantic version.
@@ -443,22 +418,6 @@ send_tmux_message() {
   if [[ -n "$fallback_key" && "$fallback_key" != "$submit_key" ]]; then
     sleep 0.08
     tmux send-keys -t "$target" "$fallback_key"
-  fi
-}
-
-run_agent_cmd() {
-  local cmd="$1"
-  if [[ "$RELAY_ASYNC" == "1" ]]; then
-    if [[ -n "$RELAY_PROJECT_DIR" ]]; then
-      (
-        cd "$RELAY_PROJECT_DIR"
-        nohup /bin/zsh -lc "$cmd" >> "$RELAY_AGENT_LOG_FILE" 2>&1 &
-      )
-    else
-      nohup /bin/zsh -lc "$cmd" >> "$RELAY_AGENT_LOG_FILE" 2>&1 &
-    fi
-  else
-    run_in_dir /bin/zsh -lc "$cmd" >> "$RELAY_AGENT_LOG_FILE" 2>&1
   fi
 }
 
