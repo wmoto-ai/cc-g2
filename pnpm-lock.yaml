@@ -40,11 +40,11 @@ importers:
         version: 8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.23.15)
     devDependencies:
       '@evenrealities/evenhub-cli':
-        specifier: 0.1.13
-        version: 0.1.13(@types/node@26.6.3)(typescript@5.9.3)
+        specifier: 0.1.14
+        version: 0.1.14(@types/node@26.6.3)(typescript@5.9.3)
       '@evenrealities/evenhub-simulator':
-        specifier: 0.9.3
-        version: 0.9.3
+        specifier: 0.9.5
+        version: 0.9.5
       concurrently:
         specifier: 10.0.5
         version: 10.0.5
@@ -74,14 +74,14 @@ importers:
         specifier: ^26.6.3
         version: 26.6.3
       tsx:
-        specifier: ^4.19.0
-        version: 4.22.4
+        specifier: ^4.23.15
+        version: 4.23.15
       typescript:
         specifier: ^6.0.0
         version: 6.0.3
       vitest:
         specifier: ^4.1.11
-        version: 4.1.11(@types/node@26.6.3)(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.22.4))
+        version: 4.1.11(@types/node@26.6.3)(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.23.15))
 
 packages:
 
@@ -248,36 +248,48 @@ packages:
     resolution: {integrity: sha512-8/qMR4W3vna6xAM5/dFDmKoTR98D7Vo3TDBrtS0JgdUSvBVyAnUXuhODI3H587fI2TfLbp4T+FNT3EdkB3+Big==}
     engines: {node: ^20.0.0 || >=22.0.0}
 
-  '@evenrealities/evenhub-cli@0.1.13':
-    resolution: {integrity: sha512-glkkGfImds8ceh1YTbVvwuw7jlcSAKnI6Q7ATrDynKSvODs9/FV/R+0CliyCog3JJRTON0+EXBLW3lxU4x8NBQ==}
+  '@evenrealities/evenhub-cli@0.1.14':
+    resolution: {integrity: sha512-aSaCuj01LDaRUinXu1uAAw6743oGGB6Um8mEiXB5M0mj3dbqzdJ9dijSM1lGcuDX/+wFTa/qUdbx7QippBlDuQ==}
     hasBin: true
     peerDependencies:
       typescript: ^5
 
-  '@evenrealities/evenhub-simulator@0.9.3':
-    resolution: {integrity: sha512-x431poPoSAV7FyVuYYR73VYDBkYMBtWGR9Ps6k6Td8lyj4zMoXMlRXUS8hb11aSFmXUiDsePNwl2ckFVy+dz4g==}
+  '@evenrealities/evenhub-simulator@0.9.5':
+    resolution: {integrity: sha512-pGqNoog8BI9qatQQOwqgaz+jWHvktjIcrCIHkWNrwGpN8oCZIkz9oIFdtstpk6CG/QiO3NhFuaVpInBYb3KhfQ==}
     hasBin: true
 
-  '@evenrealities/sim-darwin-arm64@0.9.3':
-    resolution: {integrity: sha512-U47Pg3O8TQEuwd+bflSGh1Nn1GYBOuvtMHRddKEF4JtO/pB00Z/6yyp1LrEt1QiFzSbZLjNYU/H2dbJCjMYXuQ==}
+  '@evenrealities/sim-darwin-arm64@0.9.5':
+    resolution: {integrity: sha512-BDEFOrECb/jyocMuw5LbVew/KgBElgtLAQgNngcvOf6/Rx6GLadeLDj3LMKLbbhIYHLmM5cx1HX8AgSjon3kvg==}
     cpu: [arm64]
     os: [darwin]
     hasBin: true
 
-  '@evenrealities/sim-darwin-x64@0.9.3':
-    resolution: {integrity: sha512-xQtGmElqncS74LQJqlyZ9J7UyPIeaFUOl2WyXsac8YM2N6dN9dMCDAPpEZs882pIe/EyuHr9ivT8pYWCNXOpuA==}
+  '@evenrealities/sim-darwin-x64@0.9.5':
+    resolution: {integrity: sha512-fZ+FcZUZ0kQqY56vmUI9blPpNEQ1bGmdyrvAz/ibxpXd4dtD8ej4qjGKPl1ZI2+OSTy7b4oS512o/day+Cp+FA==}
     cpu: [x64]
     os: [darwin]
     hasBin: true
 
-  '@evenrealities/sim-linux-x64@0.9.3':
-    resolution: {integrity: sha512-mSt6AeUh/Y/IUuMCWsl9vSaydWaRjhGjkArfgGStbjKPxEnagpQvvyA3vrgIr8kfcDU5ZO6UJxQWYXFn3XXXFA==}
+  '@evenrealities/sim-linux-arm64@0.9.5':
+    resolution: {integrity: sha512-HAYPupYYQ75d/+fevQtTk6ZNxNuU5/ZFJ/GUmd6mhIwsiiCAUr1rXyO1wJJwP59gQut/Y62rEdh950yzP+5oag==}
+    cpu: [arm64]
+    os: [linux]
+    hasBin: true
+
+  '@evenrealities/sim-linux-x64@0.9.5':
+    resolution: {integrity: sha512-N2Aoye8an5CWew7WaVREFXOtdt4cxta9pzpZq0ojd+IInGjBvTilqepPn5PJay8w3Al5m25G5nz+JT/KepTzgg==}
     cpu: [x64]
     os: [linux]
     hasBin: true
 
-  '@evenrealities/sim-win32-x64@0.9.3':
-    resolution: {integrity: sha512-j7hHTpRXWiZOeWSj+loSko8yoaJGev7V7EGVL0ntnVj7E/ko0NhfsMj/8d2fxBwKl1laYhbwvZIB3Vm6oKsWsw==}
+  '@evenrealities/sim-win32-arm64@0.9.5':
+    resolution: {integrity: sha512-lXCRa9cFz9YXzWhLlct3Qk7WpolUl/zbWZFfZYMYCaCnDT1i5ME1Obs4eQv65e/IPjNL7nu67Ff4Dwp1WCrG8g==}
+    cpu: [arm64]
+    os: [win32]
+    hasBin: true
+
+  '@evenrealities/sim-win32-x64@0.9.5':
+    resolution: {integrity: sha512-AwN4O1tOxFr+VwXKZjCHb353HyJOSHTlagnsgoOehabNY1p3GmlpUfwD2R30uSCKUNO4gEzEKtbkSCbncqcZ4g==}
     cpu: [x64]
     os: [win32]
     hasBin: true
@@ -1614,11 +1626,6 @@ packages:
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
-  tsx@4.22.4:
-    resolution: {integrity: sha512-X8EX+XV4QR5xCsrgxaED954zTDfY8KqlDtskKEL0cHhyS/P8b4IFOvGDQpsC9Q1XnLq915wEfwwY/zzskCtmhg==}
-    engines: {node: '>=18.0.0'}
-    hasBin: true
-
   tsx@4.23.15:
     resolution: {integrity: sha512-Yiex1Ovn8z2xPpOWckIiysV1SSyRMY9BkLF++q0yKiDxCqRhosKfMg3janKkiLBwZ5c/YryloKwGZcrEmtwxKw==}
     engines: {node: '>=18.0.0'}
@@ -1903,7 +1910,7 @@ snapshots:
 
   '@evenrealities/even_hub_sdk@0.0.16': {}
 
-  '@evenrealities/evenhub-cli@0.1.13(@types/node@26.6.3)(typescript@5.9.3)':
+  '@evenrealities/evenhub-cli@0.1.14(@types/node@26.6.3)(typescript@5.9.3)':
     dependencies:
       chalk: 5.6.2
       commander: 14.0.3
@@ -1917,23 +1924,31 @@ snapshots:
     transitivePeerDependencies:
       - '@types/node'
 
-  '@evenrealities/evenhub-simulator@0.9.3':
+  '@evenrealities/evenhub-simulator@0.9.5':
     optionalDependencies:
-      '@evenrealities/sim-darwin-arm64': 0.9.3
-      '@evenrealities/sim-darwin-x64': 0.9.3
-      '@evenrealities/sim-linux-x64': 0.9.3
-      '@evenrealities/sim-win32-x64': 0.9.3
+      '@evenrealities/sim-darwin-arm64': 0.9.5
+      '@evenrealities/sim-darwin-x64': 0.9.5
+      '@evenrealities/sim-linux-arm64': 0.9.5
+      '@evenrealities/sim-linux-x64': 0.9.5
+      '@evenrealities/sim-win32-arm64': 0.9.5
+      '@evenrealities/sim-win32-x64': 0.9.5
 
-  '@evenrealities/sim-darwin-arm64@0.9.3':
+  '@evenrealities/sim-darwin-arm64@0.9.5':
     optional: true
 
-  '@evenrealities/sim-darwin-x64@0.9.3':
+  '@evenrealities/sim-darwin-x64@0.9.5':
     optional: true
 
-  '@evenrealities/sim-linux-x64@0.9.3':
+  '@evenrealities/sim-linux-arm64@0.9.5':
     optional: true
 
-  '@evenrealities/sim-win32-x64@0.9.3':
+  '@evenrealities/sim-linux-x64@0.9.5':
+    optional: true
+
+  '@evenrealities/sim-win32-arm64@0.9.5':
+    optional: true
+
+  '@evenrealities/sim-win32-x64@0.9.5':
     optional: true
 
   '@grammyjs/auto-retry@2.0.2(grammy@1.46.0)':
@@ -2166,14 +2181,6 @@ snapshots:
       '@vitest/utils': 4.1.11
       chai: 6.2.2
       tinyrainbow: 3.1.0
-
-  '@vitest/mocker@4.1.11(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.22.4))':
-    dependencies:
-      '@vitest/spy': 4.1.11
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.22.4)
 
   '@vitest/mocker@4.1.11(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.23.15))':
     dependencies:
@@ -3328,12 +3335,6 @@ snapshots:
 
   tslib@2.8.1: {}
 
-  tsx@4.22.4:
-    dependencies:
-      esbuild: 0.28.1
-    optionalDependencies:
-      fsevents: 2.3.3
-
   tsx@4.23.15:
     dependencies:
       esbuild: 0.28.1
@@ -3387,19 +3388,6 @@ snapshots:
     transitivePeerDependencies:
       - rollup
 
-  vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.22.4):
-    dependencies:
-      lightningcss: 1.33.0
-      picomatch: 4.0.7
-      postcss: 8.5.28
-      rolldown: 1.2.11
-      tinyglobby: 0.2.17
-    optionalDependencies:
-      '@types/node': 26.6.3
-      esbuild: 0.28.1
-      fsevents: 2.3.3
-      tsx: 4.22.4
-
   vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.23.15):
     dependencies:
       lightningcss: 1.33.0
@@ -3412,33 +3400,6 @@ snapshots:
       esbuild: 0.28.1
       fsevents: 2.3.3
       tsx: 4.23.15
-
-  vitest@4.1.11(@types/node@26.6.3)(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.22.4)):
-    dependencies:
-      '@vitest/expect': 4.1.11
-      '@vitest/mocker': 4.1.11(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.22.4))
-      '@vitest/pretty-format': 4.1.11
-      '@vitest/runner': 4.1.11
-      '@vitest/snapshot': 4.1.11
-      '@vitest/spy': 4.1.11
-      '@vitest/utils': 4.1.11
-      es-module-lexer: 2.1.0
-      expect-type: 1.3.0
-      magic-string: 0.30.21
-      obug: 2.1.3
-      pathe: 2.0.3
-      picomatch: 4.0.4
-      std-env: 4.1.0
-      tinybench: 2.9.0
-      tinyexec: 1.2.4
-      tinyglobby: 0.2.17
-      tinyrainbow: 3.1.0
-      vite: 8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.22.4)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@types/node': 26.6.3
-    transitivePeerDependencies:
-      - msw
 
   vitest@4.1.11(@types/node@26.6.3)(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(tsx@4.23.15)):
     dependencies:
