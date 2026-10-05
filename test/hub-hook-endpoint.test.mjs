@@ -369,6 +369,27 @@ describe('Notification Hub — Permission Request HTTP Hook Endpoint', () => {
     await hookPromise
   })
 
+  it('POST /api/hooks/permission-request — Bash preview shows description as reason', async () => {
+    const hookBody = {
+      session_id: 'bash-reason-test',
+      cwd: '/tmp/bash-reason',
+      tool_name: 'Bash',
+      tool_input: { command: 'pnpm test', description: 'テストを実行して変更を確認' },
+    }
+
+    const hookPromise = postJson(hubBase, '/api/hooks/permission-request', hookBody)
+    await new Promise((r) => setTimeout(r, 500))
+
+    const { data: pendingData } = await getJson(hubBase, '/api/approvals')
+    const pending = pendingData.items.find((a) => a.cwd === '/tmp/bash-reason')
+    expect(pending).toBeDefined()
+    const { data: detail } = await getJson(hubBase, `/api/notifications/${pending.notificationId}`)
+    expect(detail.item.fullText).toBe('pnpm test\n\n理由: テストを実行して変更を確認')
+
+    await postJson(hubBase, `/api/approvals/${pending.id}/decide`, { decision: 'approve' })
+    await hookPromise
+  })
+
   it('POST /api/hooks/permission-request — apply_patch preview keeps real patch lines', async () => {
     const patch = [
       '*** Begin Patch',

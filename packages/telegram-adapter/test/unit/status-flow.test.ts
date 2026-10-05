@@ -79,7 +79,7 @@ function harness(initialRef?: StatusMessageRef): Harness {
 }
 
 const CTX: ContextSessionRecord[] = [
-  { sessionId: 's1', cwd: '/repo', usedPercentage: 42, model: 'claude-sonnet-5' },
+  { sessionId: 's1', cwd: '/repo', usedPercentage: 42, model: 'model-a' },
 ]
 const ACT: SessionActivityRecord[] = [{ tmuxTarget: 'cc:1.0', label: 'repo', state: 'active' }]
 

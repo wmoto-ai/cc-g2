@@ -1,6 +1,6 @@
 # 既知の制限事項
 
-> **更新日**: 2026-03-19
+> **更新日**: 2026-06-10
 
 ---
 
@@ -175,10 +175,10 @@ G2で通知詳細を開いた時、Edit（ファイル編集）の `old_string` 
 
 ### 原因
 
-Notification Hub の PermissionRequest 処理（`server/notification-hub/index.mjs`）で、Edit通知のプレビュー生成時にold/newをそれぞれ **200文字で切り詰めている**。
+Notification Hub の PermissionRequest 処理（`server/notification-hub/hooks.mjs`）で、Edit通知のプレビュー生成時にold/newをそれぞれ **200文字で切り詰めている**。
 
 ```js
-// server/notification-hub/index.mjs:600-601
+// server/notification-hub/hooks.mjs:28-29
 const old = (toolInput?.old_string || '').slice(0, 2000)
 const new_ = (toolInput?.new_string || '').slice(0, 2000)
 ```
@@ -212,8 +212,10 @@ ghostリストコンテナは `isEventCapture: 0` だが、createStartUpフォ�
 
 ### 現在の対応
 
-`main.ts` のdetail画面ハンドラで `normalized.source === 'list'` のイベントを早期returnで無視している。イベント自体は発火するがアプリ動作に影響しない。
+`src/g2/event-router.ts` のdetail画面ハンドラで `normalized.source === 'list'` のイベントを早期returnで無視している。イベント自体は発火するがアプリ動作に影響しない。
 
 ### 解決の見込み
 
 SDK/ファームウェアの改善待ち。アプリ側での対応は現状で十分。
+
+---

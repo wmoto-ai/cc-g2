@@ -9,7 +9,7 @@
 #   g2-send-image.sh --capture [--title "タイトル"]            # 全画面スクショして送信
 #   g2-send-image.sh --capture-window [--title "タイトル"]     # 最前面ウィンドウをスクショして送信
 #
-# 環境変数: HUB_PORT (default: 8787), HUB_AUTH_TOKEN (optional)
+# 環境変数: HUB_PORT (default: 8787), HUB_AUTH_TOKEN (未設定なら tmp/notification-hub/hub-auth-token を読む)
 #
 # 出力: 成功時 "OK imageId=<uuid> notificationId=<uuid>" を stdout に出す。
 #       失敗時は stderr にエラーを出して非ゼロ exit。
@@ -18,6 +18,11 @@ set -euo pipefail
 
 HUB_PORT="${HUB_PORT:-8787}"
 HUB_AUTH_TOKEN="${HUB_AUTH_TOKEN:-}"
+# cc-g2 経由で起動していないエージェント（dsh-tui など）は env に token が無いので Hub の token ファイルを使う
+TOKEN_FILE="$(cd "$(dirname "$0")/.." && pwd)/tmp/notification-hub/hub-auth-token"
+if [ -z "$HUB_AUTH_TOKEN" ] && [ -r "$TOKEN_FILE" ]; then
+  HUB_AUTH_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
+fi
 HUB_URL="http://127.0.0.1:${HUB_PORT}"
 
 usage() {
@@ -104,7 +109,7 @@ AUTH_ARGS=()
 RESPONSE=$(curl -s --max-time 15 -X POST \
   "${HUB_URL}/api/images?title=${TITLE_ENC}" \
   -H 'Content-Type: application/octet-stream' \
-  "${AUTH_ARGS[@]}" \
+  ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} \
   --data-binary "@${UPLOAD_FILE}") || fail "upload failed (curl error)"
 
 OK=$(printf '%s' "$RESPONSE" | jq -r '.ok // false' 2>/dev/null || echo false)

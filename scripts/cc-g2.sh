@@ -3,7 +3,8 @@
 #
 # どのディレクトリからでも実行可能。
 # 1. tmux セッションを自動作成（未起動時のみ）
-# 2. Notification Hub + Vite dev server をバックグラウンドで起動（未起動時のみ）
+# 2. 統合サーバ cc-g2-server（Hub + G2 アプリ配信 + Voice Entry + Telegram）をバックグラウンドで起動
+#    （未起動時のみ。CC_G2_SLIM=0 なら旧構成の Hub / Vite / Voice Entry / Telegram adapter 個別プロセス）
 # 3. Tailscale IP の QR コードを表示（iPhone Even App 接続用）
 # 4. MOSHI_NOTIFY=1 で Claude Code を起動
 #
@@ -120,7 +121,7 @@ Options:
   --native-codex   Launch Codex CLI with G2 hooks (legacy alias)
   --copilot        Launch GitHub Copilot CLI with G2 hooks
   --new            Force a new tmux session
-  !                Restart Hub/Vite/Voice Entry before launch
+  !                Restart cc-g2-server (or legacy Hub/Vite/Voice Entry) before launch
   --help, -h       Show this help
   --version, -v    Show cc-g2 version
 
@@ -161,7 +162,6 @@ TG_ADAPTER_DATA_DIR="${CC_TG_DATA_DIR:-$HOME/.local/share/cc-tg-adapter/data}"
 TG_ADAPTER_INBOX_DIR="${CC_TG_INBOX_DIR:-$HOME/.local/share/cc-tg-adapter/inbox}"
 TG_ADAPTER_LOG_FILE="${CC_TG_LOG_FILE:-$HOME/.local/share/cc-tg-adapter/adapter.log}"
 TG_ADAPTER_ENABLED=""
-TG_ADAPTER_BOT_TOKEN=""
 TG_ADAPTER_ALLOWED_USER_IDS=""
 TG_ADAPTER_CHAT_ID=""
 TG_ADAPTER_BOT_ENV_FILE=""
@@ -175,7 +175,6 @@ VOICE_ENTRY_REPO_ROOTS="$(resolve_repo_roots)"
 
 TG_ADAPTER_ENABLED="$(resolve_tg_adapter_enabled)"
 if [ "$TG_ADAPTER_ENABLED" = "1" ]; then
-  TG_ADAPTER_BOT_TOKEN="$(resolve_tg_bot_token)"
   TG_ADAPTER_ALLOWED_USER_IDS="$(resolve_tg_allowed_user_ids)"
   TG_ADAPTER_CHAT_ID="$(resolve_tg_chat_id)"
   TG_ADAPTER_BOT_ENV_FILE="$(resolve_tg_bot_env_file)"
@@ -300,7 +299,7 @@ elif [ -z "${TMUX:-}" ] || [ "$FORCE_NEW_SESSION" = "1" ]; then
     ensure_qr_pane_for_session "$TMUX_SESSION"
     exec tmux attach-session -t "$TMUX_SESSION"
   else
-    # _CC_G2_INSIDE=1 をマーカーにして tmux 内での再帰を防ぐ
+    # 再実行先は tmux 内（$TMUX が立つ）なので上の分岐に入らず再帰しない
     # tmux new-session -e で環境変数を明示的に渡す
     build_g2_tmux_env "$TMUX_SESSION" "$AGENT_MODE"
     if [ $# -gt 0 ]; then

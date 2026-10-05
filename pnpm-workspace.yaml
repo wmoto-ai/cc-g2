@@ -11,8 +11,13 @@ packages:
 overrides:
   buffer: 6.0.3
   # socks の許容範囲内で、SSRF分類バイパスを修正した最小バージョンへ固定。
-  ip-address: 10.3.1
+  ip-address: 10.7.1
   # Even Hub CLI の許容範囲内で、!!omap のCPU DoSを修正した版へ固定。
-  js-yaml: 4.3.1
+  js-yaml: 4.3.2
   # concurrently の許容範囲内で、parse() のCPU DoSを修正した版へ固定。
   shell-quote: 1.9.0
+  # wait-on の許容範囲内で、axios / joi の既知脆弱性を修正した版へ固定。
+  axios: 1.20.0
+  joi: 18.2.6
+  # vite-plugin-node-polyfills 経由の url の許容範囲内で、qs の既知脆弱性を修正した版へ固定。
+  qs: 6.16.0

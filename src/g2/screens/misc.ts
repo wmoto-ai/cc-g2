@@ -1,22 +1,16 @@
 /**
- * G2 画面: 基本テキスト・待機画面・承認UI
+ * G2 画面: 基本テキスト・待機画面
  *
  * リファクタ Phase 5 で src/glasses-ui.ts から無編集移動。
  * core（描画ロック・レイアウト状態を内包）は createGlassesUI() が1回だけ生成し、
  * ここへは関数引数で渡す（モジュールレベル import でロックを共有しない。
  * src/g2/render-core.ts の凍結ヘッダ参照）。
  */
-import { TextContainerProperty, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
+import { TextContainerProperty } from '@evenrealities/even_hub_sdk'
 import type { BridgeConnection } from '../../bridge'
 import { log } from '../../log'
 import { t } from '../../i18n'
 import { upgradeText, type RenderCore } from '../render-core'
-
-export type ApprovalRequest = {
-  title: string
-  detail: string
-  options: string[]
-}
 
 export function createMiscScreens(core: RenderCore) {
   const {
@@ -24,7 +18,6 @@ export function createMiscScreens(core: RenderCore) {
     layoutByBridge,
     bridgeKeyOf,
     renderStartupPage,
-    renderHeaderListPage,
   } = core
 
   return {
@@ -109,58 +102,6 @@ export function createMiscScreens(core: RenderCore) {
       })
       layoutByBridge.set(bridgeKeyOf(conn), 'idle-launcher')
       log('G2待機画面表示（DblTapで通知一覧）')
-    },
-
-    /**
-     * G2に承認UIを表示し、ユーザーの選択を待つ
-     */
-    async requestApproval(
-      conn: BridgeConnection,
-      request: ApprovalRequest,
-    ): Promise<string> {
-      if (!conn.bridge) {
-        log(`[Mock] 承認リクエスト: ${request.title}`)
-        // Mockモードでは2秒後に自動承認
-        return new Promise((resolve) => {
-          setTimeout(() => {
-            log('[Mock] 自動承認')
-            resolve(request.options[0])
-          }, 2000)
-        })
-      }
-
-      // Use a compact layout that fits both 576x288 and 640x200 displays/simulators.
-      await renderHeaderListPage(conn, {
-        headerContainerName: 'approval-title',
-        headerYPosition: 10,
-        headerHeight: 48,
-        headerContent: `${request.title}\n${request.detail}`,
-        listContainerName: 'approval-list',
-        listYPosition: 64,
-        listHeight: 120,
-        listItems: request.options,
-        targetLayout: undefined,
-        layoutSet: 'approval',
-      })
-      log('G2に承認UIを表示')
-
-      // イベント待ち
-      return new Promise<string>((resolve) => {
-        const timeoutId = setTimeout(() => {
-          log('承認タイムアウト（60秒）→ 自動拒否')
-          resolve(request.options[request.options.length - 1]) // 最後の選択肢（拒否）
-        }, 60_000)
-
-        conn.onEvent((event: EvenHubEvent) => {
-          if (event.listEvent) {
-            const index = event.listEvent.currentSelectItemIndex ?? 0
-            const selected = request.options[index] ?? request.options[0]
-            clearTimeout(timeoutId)
-            log(`G2で選択: "${selected}" (index=${index})`)
-            resolve(selected)
-          }
-        })
-      })
     },
   }
 }

@@ -72,7 +72,7 @@ resolve_bin() {
 
 # resolve_hub_auth_token <project_dir>
 #   Hub 再起動でトークンがローテートすると、セッション起動時に env へ焼き込まれた
-#   旧トークンのままフックが 401 になる（docs/hub-token-401-and-trust-gate.md）。
+#   旧トークンのままフックが 401 になる。
 #   Hub は常に同じ install tree のトークンファイルを正とするため、ファイルを env より
 #   優先する。HUB_AUTH_TOKEN_FILE でファイルパスを差し替え可能（テスト・別ポート運用）。
 resolve_hub_auth_token() {

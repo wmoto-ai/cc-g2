@@ -107,7 +107,7 @@ export class HubClient {
   /**
    * POST /api/approvals/:id/decide。409(既決)は正常系の分岐として返す。
    * ネットワーク失敗は HubRequestError を投げる — 呼び出し側は自動リトライせず
-   * ユーザーに再タップさせる方針(plan §6)。
+   * ユーザーに再タップさせる方針。
    */
   async decide(id: string, decision: ApprovalDecision, comment?: string): Promise<DecideOutcome> {
     const { status, body } = await this.requestJson<{

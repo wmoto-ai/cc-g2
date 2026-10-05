@@ -24,8 +24,6 @@ export function emptyTelegramSettings(): TelegramSettings {
   return { apiId: null, apiHash: '', session: '', sonioxKey: '', chat: '' }
 }
 
-export type { SettingsStore } from '../../app/settings-store'
-
 export async function loadTelegramSettings(store: SettingsStore): Promise<TelegramSettings> {
   try {
     const raw = await store.get(STORAGE_KEY)

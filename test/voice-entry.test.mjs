@@ -77,20 +77,6 @@ STATE_DIR=${JSON.stringify(stateDir)}
 cmd="$1"
 shift || true
 case "$cmd" in
-  has-session)
-    session=""
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --session) session="$2"; shift 2 ;;
-        *) shift ;;
-      esac
-    done
-    if [ -f "$STATE_DIR/continue-ok" ]; then
-      node -e 'console.log(JSON.stringify({ok:true, exists:true, sessionName:process.argv[1]}))' "$session"
-    else
-      node -e 'console.log(JSON.stringify({ok:true, exists:false, sessionName:process.argv[1]}))' "$session"
-    fi
-    ;;
   find-session)
     workdir=""
     agent="claude"

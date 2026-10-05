@@ -79,9 +79,11 @@ cmd_doctor() {
     warn "Tailscale: not found (QR コード表示に必要)"
   fi
 
-  # Hub
+  # Hub（統合構成では cc-g2-server が Hub・G2 アプリ配信・Voice Entry・Telegram を 1 プロセスで担う）
+  local server_kind=""
   if is_hub_running; then
-    info "Hub (port $HUB_PORT): running"
+    server_kind="$(hub_server_kind)"
+    info "Hub (port $HUB_PORT): running ($server_kind)"
     if hub_auth_token_matches; then
       info "Hub auth token: enabled"
     else
@@ -93,11 +95,13 @@ cmd_doctor() {
     warn "Hub (port $HUB_PORT): stopped"
   fi
 
-  # Vite
+  # G2 アプリ配信（統合構成は cc-g2-server、旧構成 CC_G2_SLIM=0 は Vite dev server）
+  local app_label="Vite"
+  [ "$server_kind" = "cc-g2-server" ] && app_label="G2 app (cc-g2-server)"
   if is_vite_running; then
-    info "Vite (port $VITE_PORT): running"
+    info "$app_label (port $VITE_PORT): running"
   else
-    warn "Vite (port $VITE_PORT): stopped"
+    warn "$app_label (port $VITE_PORT): stopped"
   fi
 
   if [ "$VOICE_ENTRY_ENABLED" = "1" ]; then
@@ -118,7 +122,19 @@ cmd_doctor() {
 
   # Telegram adapter
   if [ "$TG_ADAPTER_ENABLED" = "1" ]; then
-    if is_tg_adapter_running; then
+    # 統合構成ではプロセス内で起動するので hub.log の最後の telegram 行で判定する
+    # （旧 adapter の tmux セッションが居ればそちらに譲るので従来の判定）
+    local tg_last=""
+    if [ "$server_kind" = "cc-g2-server" ] && ! is_tg_adapter_running; then
+      tg_last="$(grep 'cc-g2-server telegram:' "${G2_PROJECT_DIR}/tmp/notification-hub/hub.log" 2>/dev/null | tail -1 || true)"
+    fi
+    if [ -n "$tg_last" ]; then
+      if [[ "$tg_last" == *"adapter started in-process"* ]]; then
+        info "Telegram adapter (in-process): running"
+      else
+        warn "Telegram adapter (in-process): not running — ${tg_last#*telegram: }"
+      fi
+    elif is_tg_adapter_running; then
       info "Telegram adapter (session: $TG_ADAPTER_SESSION): running"
     else
       warn "Telegram adapter (session: $TG_ADAPTER_SESSION): stopped"

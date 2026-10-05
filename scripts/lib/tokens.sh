@@ -73,16 +73,8 @@ load_or_create_voice_entry_token() {
 resolve_voice_entry_enabled() {
   local value
   value="$(resolve_env_var "CC_G2_VOICE_ENTRY_ENABLED" "CC_G2_VOICE_ENTRY_ENABLED" "$G2_PROJECT_DIR")"
-  if [ -n "$value" ]; then
-    printf '%s' "$value"
-    return
-  fi
-  # VOICE_ENTRY_ENABLED が空でも TOKEN が設定されていれば有効
-  if [ -n "${CC_G2_VOICE_ENTRY_TOKEN:-}" ]; then
-    printf '1'
-    return
-  fi
-  printf '1'
+  # 未設定なら既定で有効
+  printf '%s' "${value:-1}"
 }
 
 resolve_repo_roots() {
@@ -141,13 +133,6 @@ resolve_tg_adapter_enabled() {
   printf '0'
 }
 
-resolve_tg_bot_token() {
-  local value
-  value="$(resolve_env_var "TELEGRAM_BOT_TOKEN" "TELEGRAM_BOT_TOKEN" "$G2_PROJECT_DIR")"
-  [ -n "$value" ] || value="$(read_tg_env_file_var "TELEGRAM_BOT_TOKEN")"
-  printf '%s' "$value"
-}
-
 resolve_tg_allowed_user_ids() {
   local value
   value="$(resolve_env_var "TELEGRAM_ALLOWED_USER_IDS" "TELEGRAM_ALLOWED_USER_IDS" "$G2_PROJECT_DIR")"
@@ -166,6 +151,7 @@ resolve_tg_bot_env_file() {
   local env_file
   env_file="$(resolve_tg_env_file_path)"
   [ -f "$env_file" ] && printf '%s' "$env_file"
+  return 0
 }
 
 # ─── トークンの再読込 ────────────────────────────────────────

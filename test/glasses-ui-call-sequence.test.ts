@@ -9,7 +9,7 @@
  * 検証する。スナップショットの更新（-u）はリファクタ中は原則禁止。
  * 意図的に挙動を変える場合のみ、変更内容をコミットメッセージに明記して更新する。
  *
- * docs/refactor-plan.md Phase 0 / docs/known-limitations.md 参照。
+ * docs/known-limitations.md 参照。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildNotificationActions, createGlassesUI } from '../src/glasses-ui'
@@ -282,7 +282,7 @@ describe('showNotificationList', () => {
     const ui = createGlassesUI()
     ui.setSessionActivities([
       { tmuxTarget: 'g2-cc-g2-4c4a:0.0', label: 'cc-g2', state: 'active' },
-      { tmuxTarget: 'g2-minimalmem-246c:0.0', label: 'mm', state: 'idle' },
+      { tmuxTarget: 'g2-sampleproj-246c:0.0', label: 'mm', state: 'idle' },
       { tmuxTarget: 'g2-other-1111:0.0', label: 'other', state: 'error' },
       { tmuxTarget: 'g2-dead-2222:0.0', label: 'dead', state: 'dead' },
       { tmuxTarget: 'g2-fifth-3333:0.0', label: 'fifth', state: 'active' }, // 5件目は表示されない
@@ -516,29 +516,5 @@ describe('showImage', () => {
     await vi.runAllTimersAsync()
     expect(await promise).toBe(false)
     expect(calls.filter((c) => c.method === 'updateImageRawData')).toHaveLength(IMAGE_TILES.length)
-  })
-})
-
-describe('requestApproval', () => {
-  it('リスト選択イベントで選択肢ラベルを resolve する', async () => {
-    const { conn, calls, fireEvent } = createMockConn()
-    const ui = createGlassesUI()
-    const promise = ui.requestApproval(conn, {
-      title: 'pnpm test',
-      detail: 'テストを実行します',
-      options: ['許可', '拒否'],
-    })
-    await vi.advanceTimersByTimeAsync(10)
-    fireEvent({ listEvent: { currentSelectItemIndex: 1 } })
-    expect(await promise).toBe('拒否')
-    expect(calls).toMatchSnapshot()
-  })
-
-  it('60秒無応答で最後の選択肢（拒否）に自動 resolve する', async () => {
-    const { conn } = createMockConn()
-    const ui = createGlassesUI()
-    const promise = ui.requestApproval(conn, { title: 't', detail: 'd', options: ['許可', '拒否'] })
-    await vi.advanceTimersByTimeAsync(60_000)
-    expect(await promise).toBe('拒否')
   })
 })

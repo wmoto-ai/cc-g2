@@ -105,7 +105,5 @@ export function createGlassesUI() {
     showReplySttProcessing: reply.showReplySttProcessing,
     showReplyConfirmActions: reply.showReplyConfirmActions,
     showReplyResult: reply.showReplyResult,
-
-    requestApproval: misc.requestApproval,
   }
 }

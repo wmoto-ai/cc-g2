@@ -1,5 +1,5 @@
 /**
- * G2 ミラーの表示モデル・bridge タップのテスト。
+ * G2 ミラーの表示モデル・bridge タップのテスト
  *
  * - 表示モデル: SDK の実クラス（CreateStartUpPageContainer 等）から containers を
  *   正しく抽出できること（プロパティ名の整合を実クラスで検証する）

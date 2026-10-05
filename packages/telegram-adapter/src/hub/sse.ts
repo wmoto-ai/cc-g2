@@ -1,5 +1,5 @@
 // Hub SSE (GET /api/events) の購読。replay がないため、(再)接続成功のたびに onConnect で
-// reconciliation を起動して切断中の取りこぼしを埋める(plan §5.2)。
+// reconciliation を起動して切断中の取りこぼしを埋める。
 import type { Logger } from '../logger'
 import { errorMessage } from '../logger'
 import { createBackoff, type Backoff } from '../util/backoff'

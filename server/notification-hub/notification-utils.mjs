@@ -1,4 +1,4 @@
-export function redactValue(value) {
+function redactValue(value) {
   if (Array.isArray(value)) return value.map(redactValue)
   if (!value || typeof value !== 'object') return value
   const out = {}

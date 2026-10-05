@@ -115,4 +115,36 @@ describe('reply-relay-herdr copilot focus-before-submit', () => {
     // 従来どおり Enter で submit する
     expect(calls.some((c) => c === `pane send-keys ${TARGET} Enter`)).toBe(true)
   })
+
+  it('dsh-tui 承認 approve: 番号キー 1 だけを送り、focus しない', async () => {
+    const { res, calls } = await runHerdrRelay({
+      reply: { action: 'approve', source: 'g2' },
+      notification: {
+        id: 'n-dsh-approve',
+        title: 'bash',
+        metadata: { hookType: 'permission-request', agentName: 'dsh-tui', tmuxTarget: `herdr:${TARGET}` },
+      },
+    })
+    expect(res.status, res.stderr).toBe(0)
+    const keys = calls.filter((c) => c.startsWith('pane send-keys'))
+    expect(keys).toEqual([`pane send-keys ${TARGET} 1`])
+    expect(calls.some((c) => c.startsWith('agent focus'))).toBe(false)
+  })
+
+  it('dsh-tui 承認 deny: 番号キー 2、コメントがあれば決定後にテキスト送信', async () => {
+    const { res, calls } = await runHerdrRelay({
+      reply: { action: 'deny', comment: 'rm は使わないで', source: 'g2' },
+      notification: {
+        id: 'n-dsh-deny',
+        title: 'bash',
+        metadata: { hookType: 'permission-request', agentName: 'dsh-tui', tmuxTarget: `herdr:${TARGET}` },
+      },
+    })
+    expect(res.status, res.stderr).toBe(0)
+    const twoIdx = calls.findIndex((c) => c === `pane send-keys ${TARGET} 2`)
+    const textIdx = calls.findIndex((c) => c.startsWith(`pane send-text ${TARGET} rm は使わないで`))
+    expect(twoIdx).toBeGreaterThanOrEqual(0)
+    expect(textIdx).toBeGreaterThan(twoIdx)
+    expect(calls.some((c) => c === `pane send-keys ${TARGET} 1`)).toBe(false)
+  })
 })

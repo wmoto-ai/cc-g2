@@ -1,4 +1,4 @@
-// 起動時 / 定期 / SSE 再接続時の pending 突合(plan §5.3)。
+// 起動時 / 定期 / SSE 再接続時の pending 突合。
 // SSE に replay がないため、これが取りこぼしゼロの土台になる。
 import type { Logger } from '../logger'
 import { errorMessage } from '../logger'

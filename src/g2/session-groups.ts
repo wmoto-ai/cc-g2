@@ -10,11 +10,13 @@ import type { NotificationItem } from '../notifications'
 import { deriveSessionLabel, byteLen, truncateByBytes } from './text-format'
 import { t } from '../i18n'
 
-export type SessionActivityState = 'active' | 'idle' | 'error' | 'dead'
+export type SessionActivityState = 'active' | 'waiting' | 'done' | 'idle' | 'error' | 'dead'
 
 /** セッション状態マーク（session-list 行・通知一覧ヘッダで共用） */
 export const SESSION_STATE_MARK: Record<SessionActivityState, string> = {
   active: '▶',
+  waiting: '?',
+  done: '●',
   idle: '○',
   error: '!',
   dead: 'X',
@@ -41,7 +43,7 @@ function basename(cwd: string): string {
 
 /**
  * tmuxTarget からグラス表示用の短いセッション名を導出する。
- * "g2-cc-g2-4c4a:0.0" → "cc-g2" , "g2-minimalmem-246c:0.0" → "minima"。
+ * "g2-cc-g2-4c4a:0.0" → "cc-g2" , "g2-sampleproj-246c:0.0" → "sample"。
  * herdr エントリ("herdr:w4:p1" 等)はセッション名部が常に "herdr" になるため、
  * label(Hub が cwd basename を入れる)を優先する。
  * （旧 src/g2/screens/notification.ts のローカル実装を移設・単一の出所にする）
@@ -143,7 +145,7 @@ export function buildSessionGroups(
 
 /**
  * session-list の 1 行テキストを生成する（状態マーク + ラベル + 件数）。
- * §10 の 1 アイテム上限に合わせ既定 45 バイト以内に収める（renderHeaderListPage 側でも
+ * ListContainer の 1 アイテム上限（UTF-8 バイト基準）に合わせ既定 45 バイト以内に収める（renderHeaderListPage 側でも
  * 再度切り詰めるが、行単体でも予算内に収めておく）。
  */
 export function formatSessionRow(group: SessionGroup, maxBytes = 45): string {

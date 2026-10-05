@@ -398,9 +398,7 @@ async function handleNotificationReply(req, res, id) {
 
 export {
   addNotification,
-  areSameSession,
   notificationToListItem,
-  listNotifications,
   matchNotificationDetail,
   matchNotificationReply,
   handleNotifyMoshi,

@@ -2,8 +2,8 @@
  * deriveSessionLabel のクライアント/サーバー二重実装の同一性クロステスト
  *
  * クライアント（src/g2/text-format.ts）とサーバー（server/notification-hub/
- * notification-utils.mjs）はビルド境界が異なるため実装を統合できない
- * （docs/refactor-plan.md Phase 7）。代わりに代表入力で出力同一性を固定し、
+ * notification-utils.mjs）はビルド境界が異なるため実装を統合できない。
+ * 代わりに代表入力で出力同一性を固定し、
  * 片側だけ変更されたら検知する。
  */
 import { describe, expect, it } from 'vitest'
@@ -15,7 +15,7 @@ const CASES = [
   'g2-cc-g2-4c4a:0.0', // ハッシュ付き → #1
   'g2-myrepo-1a2b-2:0.0', // ハッシュ+連番 → #2
   'g2-myrepo-1a2b-12:0.0', // 2桁連番 → #12
-  'g2-minimalmem-246c:0.0', // ハッシュのみ → #1
+  'g2-sampleproj-246c:0.0', // ハッシュのみ → #1
   'g2-demo-abcd-codex:0.0', // codex サフィックス → #1
   'g2-demo-abcd-codex-2:0.0', // codex + 連番 → #2
   'g2-demo-abcd-copilot:0.0', // copilot サフィックス → #1

@@ -14,8 +14,8 @@ updates:
       npm-minor-patch:
         update-types: ["minor", "patch"]
     ignore:
-      # 0.0.10+ の ShadowTimers は同一 timeout を二重発火させるため 0.0.9 に固定する。
-      # SDK 更新は実機検証で修正を確認してから手動で行う。
+      # ShadowTimers のタイマー二重発火バグ（0.0.10 以降で再現）があるため、
+      # SDK 更新は Dependabot に任せず実機検証を経て手動で行う（現在は ^0.0.16）
       - dependency-name: "@evenrealities/even_hub_sdk"
   - package-ecosystem: "github-actions"
     directory: "/"

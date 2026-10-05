@@ -15,7 +15,7 @@ exports[`deriveSessionLabel クライアント/サーバー同一性 > 代表値
     "label": "#12",
   },
   {
-    "input": "g2-minimalmem-246c:0.0",
+    "input": "g2-sampleproj-246c:0.0",
     "label": "#1",
   },
   {

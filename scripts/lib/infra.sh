@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# scripts/lib/infra.sh — cc-g2 インフラ（Hub・Vite・Voice Entry）の起動・停止・状態確認
+# scripts/lib/infra.sh — cc-g2 インフラの起動・停止・状態確認
+# 既定は統合サーバ 1 プロセス（ensure_slim_server）。CC_G2_SLIM=0 で旧 Hub・Vite・Voice Entry・
+# Telegram adapter の個別プロセス構成（ensure_legacy_infra）。
 # source して使う。直接実行しない。
 #
 # 警告: このファイルには「関数定義のみ」を置くこと。トップレベルの処理・変数定義・
@@ -177,7 +179,163 @@ cmd_qr() {
   render_qr_url "$url"
 }
 
+# 要求構成。1（既定）= 統合サーバ 1 プロセス（server/cc-g2-server.mjs）、0 = 旧 4 プロセス構成
+requested_slim_mode() {
+  resolve_env_var "CC_G2_SLIM" "CC_G2_SLIM" "$G2_PROJECT_DIR" "1"
+}
+# 稼働中 Hub の種別（/api/health の server）。旧 Hub は server を返さない
+hub_server_kind() {
+  curl -s --max-time 1 "http://127.0.0.1:$HUB_PORT/api/health" 2>/dev/null \
+    | jq -r '.server // "notification-hub"' 2>/dev/null || true
+}
+
 ensure_infra() {
+  if [ "$(requested_slim_mode)" = "1" ]; then
+    ensure_slim_server
+    return
+  fi
+  ensure_legacy_infra
+}
+
+# Telegram の bot token 用 env ファイル（op:// 参照可）。無ければ空
+tg_bot_env_file() {
+  local bot_env_file="${TG_ADAPTER_BOT_ENV_FILE:-}"
+  if [ -z "$bot_env_file" ]; then
+    bot_env_file="${G2_PROJECT_DIR}/packages/telegram-adapter/.env"
+  fi
+  [ -f "$bot_env_file" ] && printf '%s' "$bot_env_file"
+  return 0
+}
+
+# dist/ が無いか、src・HTML の方が新しければ G2 アプリをビルドする（トークンは配信時に差し込むので焼き込まない）
+ensure_app_build() {
+  local built="${G2_PROJECT_DIR}/dist/index.html"
+  if [ -f "$built" ] && [ -z "$(find "${G2_PROJECT_DIR}/src" "${G2_PROJECT_DIR}/index.html" \
+      "${G2_PROJECT_DIR}/mirror.html" -newer "$built" -print -quit 2>/dev/null)" ]; then
+    return 0
+  fi
+  info "G2 アプリをビルド中 (dist/)..."
+  local build_log="${G2_PROJECT_DIR}/tmp/notification-hub/build.log"
+  mkdir -p "$(dirname "$build_log")"
+  (cd "$G2_PROJECT_DIR" && ./node_modules/.bin/vite build >> "$build_log" 2>&1)
+}
+
+# 統合サーバ（Hub + G2 アプリ配信 + Voice Entry + Telegram）を確保する。
+# 旧構成の Hub が動いていれば止めずに warn だけ出す（切替は cc-g2 stop → 再実行）。
+ensure_slim_server() {
+  if is_hub_running; then
+    if [ "$(hub_server_kind)" != "cc-g2-server" ]; then
+      warn "旧構成の Hub が port $HUB_PORT で稼働中のため統合サーバは起動しません（切替: cc-g2 stop → 再実行）"
+      return 0
+    fi
+    if hub_auth_token_matches; then
+      info "cc-g2-server: 既に起動済み (port $HUB_PORT)"
+      return 0
+    fi
+    warn "Hub auth token mismatch detected; restarting cc-g2-server"
+    kill_port "$HUB_PORT" "cc-g2-server"
+  fi
+
+  if ! [ -d "$G2_PROJECT_DIR" ]; then
+    error "G2 project not found: $G2_PROJECT_DIR"
+    exit 1
+  fi
+
+  # Hub が居ないのに残っている旧 Vite / Voice Entry / adapter は統合サーバとポート・bot token を取り合うので止める
+  kill_port "$VITE_PORT" "Vite"
+  if [ "$VOICE_ENTRY_ENABLED" = "1" ]; then kill_port "$VOICE_ENTRY_PORT" "VoiceEntry"; fi
+  if [ "$TG_ADAPTER_ENABLED" = "1" ]; then kill_tg_adapter; fi
+
+  ensure_app_build || warn "G2 アプリのビルドに失敗しました（${G2_PROJECT_DIR}/tmp/notification-hub/build.log）"
+
+  local hub_log="${G2_PROJECT_DIR}/tmp/notification-hub/hub.log"
+  local allowed_origins="http://127.0.0.1:${VITE_PORT},http://localhost:${VITE_PORT}"
+  local ts_ip
+  ts_ip=$(tailscale ip -4 2>/dev/null || true)
+  if [ -n "$ts_ip" ]; then
+    allowed_origins="${allowed_origins},http://${ts_ip}:${VITE_PORT}"
+  fi
+  mkdir -p "$(dirname "$hub_log")"
+
+  local -a envs=(
+    HUB_BIND=0.0.0.0
+    "HUB_PORT=$HUB_PORT"
+    "HUB_APP_PORT=$VITE_PORT"
+    "HUB_STATIC_DIR=${G2_PROJECT_DIR}/dist"
+    "HUB_AUTH_TOKEN=$HUB_AUTH_TOKEN"
+    "HUB_APPROVAL_MODE=$(requested_approval_mode)"
+    "GROQ_API_KEY=$GROQ_API_KEY_RESOLVED"
+    "OPENAI_API_KEY=$OPENAI_API_KEY_RESOLVED"
+    "SONIOX_API_KEY=$SONIOX_API_KEY_RESOLVED"
+    "HUB_ALLOWED_ORIGINS=$allowed_origins"
+    "HUB_ALLOWED_HOSTS=$(resolve_env_var "HUB_ALLOWED_HOSTS" "HUB_ALLOWED_HOSTS" "$G2_PROJECT_DIR")"
+    "HUB_REPLY_RELAY_SOURCES=${HUB_REPLY_RELAY_SOURCES:-g2,web,telegram}"
+    "HUB_REPLY_RELAY_CMD=${CC_G2_REPLY_RELAY_CMD-bash server/notification-hub/reply-relay.sh}"
+    RELAY_ENABLE_TMUX=1
+    RELAY_TMUX_AUTO_DETECT=1
+    RELAY_TMUX_USE_NOTIFICATION_TARGET=1
+    RELAY_TMUX_STRICT_APPROVAL_TARGET=1
+    RELAY_MESSAGE_STYLE=simple
+    RELAY_TMUX_SUBMIT_KEY=C-j
+    RELAY_TMUX_SUBMIT_FALLBACK_KEY=Enter
+    RELAY_LOG_FILE=tmp/notification-hub/reply-relay-events.jsonl
+    RELAY_AGENT_LOG_FILE=tmp/notification-hub/reply-relay-agent.log
+    "CC_G2_VOICE_ENTRY_ENABLED=$VOICE_ENTRY_ENABLED"
+    "CC_G2_VOICE_ENTRY_PORT=$VOICE_ENTRY_PORT"
+    "CC_G2_VOICE_ENTRY_BIND=$VOICE_ENTRY_BIND"
+    "CC_G2_VOICE_ENTRY_TOKEN=$VOICE_ENTRY_TOKEN"
+    "CC_G2_VOICE_ENTRY_LOG_FILE=$VOICE_ENTRY_LOG_FILE"
+    "CC_G2_VOICE_ENTRY_LAST_SESSION_FILE=$VOICE_ENTRY_LAST_SESSION_FILE"
+    "CC_G2_REPO_ROOTS=$VOICE_ENTRY_REPO_ROOTS"
+    "CC_G2_REPO_SCAN_DEPTH=$VOICE_ENTRY_SCAN_DEPTH"
+    "CC_G2_TELEGRAM=$TG_ADAPTER_ENABLED"
+    "CC_G2_TG_DATA_DIR=$TG_ADAPTER_DATA_DIR"
+    "CC_G2_TG_INBOX_DIR=$TG_ADAPTER_INBOX_DIR"
+    "CC_G2_TG_LEGACY_SESSION=$TG_ADAPTER_SESSION"
+    LOG_LEVEL=info
+  )
+  if [ -n "${TG_ADAPTER_ALLOWED_USER_IDS:-}" ] && [[ "${TG_ADAPTER_ALLOWED_USER_IDS}" != op://* ]]; then
+    envs+=("TELEGRAM_ALLOWED_USER_IDS=$TG_ADAPTER_ALLOWED_USER_IDS")
+  fi
+  if [ -n "${TG_ADAPTER_CHAT_ID:-}" ] && [[ "${TG_ADAPTER_CHAT_ID}" != op://* ]]; then
+    envs+=("TELEGRAM_CHAT_ID=$TG_ADAPTER_CHAT_ID")
+  fi
+
+  # Telegram の bot token は旧 adapter と同じ env ファイルから、このプロセスにだけ注入する。
+  # op-sa の後ろに env を置くので、env ファイル側の HUB_* 等より上の値が勝つ
+  local -a prefix=() node_flags=()
+  if [ "$TG_ADAPTER_ENABLED" = "1" ]; then
+    mkdir -p "$TG_ADAPTER_DATA_DIR" "$TG_ADAPTER_INBOX_DIR"
+    chmod 700 "$TG_ADAPTER_INBOX_DIR" 2>/dev/null || true
+    local bot_env_file
+    bot_env_file="$(tg_bot_env_file)"
+    if [ -z "$bot_env_file" ]; then
+      warn "Telegram: bot token 用の env ファイルが見つかりません（CC_TG_BOT_ENV_FILE / packages/telegram-adapter/.env）"
+    elif grep -q 'op://' "$bot_env_file"; then
+      if command -v op-sa >/dev/null 2>&1; then
+        prefix=(op-sa run "--env-file=$bot_env_file" --)
+      else
+        warn "Telegram: op:// 参照を解決する op-sa が見つかりません"
+      fi
+    else
+      node_flags=("--env-file=$bot_env_file")
+    fi
+  fi
+
+  info "cc-g2-server 起動 (hub:$HUB_PORT app:$VITE_PORT voice:$VOICE_ENTRY_PORT telegram:${TG_ADAPTER_ENABLED:-0})..."
+  # bash 3.2 の set -u では空配列の展開がエラーになるため ${a[@]+...} で展開する
+  nohup ${prefix[@]+"${prefix[@]}"} env -C "$G2_PROJECT_DIR" "${envs[@]}" \
+    node --import tsx ${node_flags[@]+"${node_flags[@]}"} server/cc-g2-server.mjs \
+    >> "$hub_log" 2>&1 &
+
+  if wait_for is_hub_running 15 0.5; then
+    info "cc-g2-server: OK"
+  else
+    warn "cc-g2-server: 起動に時間がかかっています（ログ: $hub_log）"
+  fi
+}
+
+ensure_legacy_infra() {
   local need_hub=false need_vite=false need_voice=false
 
   if ! is_hub_running; then
@@ -234,6 +392,7 @@ ensure_infra() {
       OPENAI_API_KEY="$OPENAI_API_KEY_RESOLVED" \
       SONIOX_API_KEY="$SONIOX_API_KEY_RESOLVED" \
       HUB_ALLOWED_ORIGINS="$allowed_origins" \
+      HUB_ALLOWED_HOSTS="$(resolve_env_var "HUB_ALLOWED_HOSTS" "HUB_ALLOWED_HOSTS" "$G2_PROJECT_DIR")" \
       HUB_REPLY_RELAY_SOURCES="${HUB_REPLY_RELAY_SOURCES:-g2,web,telegram}" \
       HUB_REPLY_RELAY_CMD='bash server/notification-hub/reply-relay.sh' \
       RELAY_ENABLE_TMUX=1 \
@@ -402,13 +561,8 @@ start_tg_adapter() {
     env_prefix+="TELEGRAM_CHAT_ID='${TG_ADAPTER_CHAT_ID}' "
   fi
 
-  local bot_env_file="${TG_ADAPTER_BOT_ENV_FILE:-}"
-  if [ -z "$bot_env_file" ]; then
-    bot_env_file="${G2_PROJECT_DIR}/packages/telegram-adapter/.env"
-    if [ ! -f "$bot_env_file" ]; then
-      bot_env_file=""
-    fi
-  fi
+  local bot_env_file
+  bot_env_file="$(tg_bot_env_file)"
 
   local node_cmd
   if [ -n "$bot_env_file" ] && [ -f "$bot_env_file" ]; then

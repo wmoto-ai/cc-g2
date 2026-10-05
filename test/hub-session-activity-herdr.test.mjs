@@ -1,30 +1,29 @@
 /**
- * session-activity の herdr ソース対応の単体テスト
+ * herdr ソース（herdr-events.mjs）の単体テスト
  *
- * 背景（タスク #9）:
- * - herdr（terminal workspace manager）で起動した Claude Code は tmux 経由の
- *   ペイン監視に載らず、G2 ヘッダの状態マークが出なかった。
- * - 同じポーリング周期で `herdr agent list` をマージし、agent_status を
- *   active/idle に、消えたペインを dead にマッピングする。
+ * 背景:
+ * - herdr で起動した agent は tmux のペイン監視に載らないため、herdr の agent 状態を
+ *   sessionActivity（`herdr:<pane_id>`）にマージして G2 の状態マークに使う。
+ * - 5 秒ポーリングでは 5 秒未満のターンを取りこぼしたため、events.subscribe の
+ *   pane.agent_status_changed で遷移を直接処理する。agent.list はラベル・ペイン集合の更新用。
  *
- * exec を注入して純粋にステート遷移だけを検証する（herdr CLI 非依存）。
+ * herdr socket には繋がない（HERDR_SOCKET_PATH を存在しないパスにし、pane.read は失敗扱い）。
  */
 import { describe, it, expect, beforeEach } from 'vitest'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 
-// 静的 import は hoist され env 設定より先に走るため、動的 import で
-// ポーリング開始ガード（CC_G2_SESSION_ACTIVITY_DISABLED）を確実に効かせる
 process.env.CC_G2_SESSION_ACTIVITY_DISABLED = '1'
-const { parseHerdrAgents, pollHerdrActivity } = await import(
-  '../server/notification-hub/session-activity.mjs'
+process.env.HUB_DATA_DIR = mkdtempSync(path.join(tmpdir(), 'hub-herdr-events-'))
+process.env.HERDR_SOCKET_PATH = path.join(process.env.HUB_DATA_DIR, 'no-such.sock')
+const { parseHerdrAgents, applyHerdrAgents, applyHerdrStatusEvent, classifyHerdrEvent } = await import(
+  '../server/notification-hub/herdr-events.mjs'
 )
 const { store } = await import('../server/notification-hub/store.mjs')
 
-/** `herdr agent list` の JSON を返す fake exec を作る（引数は無視）。 */
-const execWith = (agents) => () =>
-  JSON.stringify({ id: 'cli:agent:list', result: { type: 'agent_list', agents } })
-
-const agent = (paneId, status, cwd) => ({
-  agent: 'claude',
+const agent = (paneId, status, cwd, name = 'claude') => ({
+  agent: name,
   agent_status: status,
   cwd,
   pane_id: paneId,
@@ -34,90 +33,118 @@ const agent = (paneId, status, cwd) => ({
 const herdrEntries = () =>
   [...store.sessionActivity.keys()].filter((k) => k.startsWith('herdr:'))
 
+// 遷移処理（通知作成）は非同期で走るので一拍待つ
+const flush = () => new Promise((r) => setTimeout(r, 20))
+const completions = (label) => store.notifications.filter((n) => n.title === `完了: ${label}`)
+
+let seq = 0
+// テスト間でペインの内部状態が混ざらないよう、毎回別の pane_id を使う
+const nextPane = () => `w9:p${++seq}`
+
 beforeEach(() => {
+  // 前テストのペインは dead → 掃除の 2 段階で消しておく
+  applyHerdrAgents([])
+  applyHerdrAgents([])
   store.sessionActivity.clear()
+  store.notifications.length = 0
+  store.notificationsById.clear()
 })
 
 describe('parseHerdrAgents', () => {
   it('working→active / idle→idle にマッピングし、cwd basename を label にする', () => {
-    const raw = execWith([
+    expect(parseHerdrAgents([
       agent('w4:p2', 'working', '/work/cc-g2'),
       agent('w4:p1', 'idle', '/work/example-repo'),
-    ])()
-    expect(parseHerdrAgents(raw)).toEqual([
-      { key: 'herdr:w4:p2', label: 'cc-g2', state: 'active' },
-      { key: 'herdr:w4:p1', label: 'example-repo', state: 'idle' },
+    ])).toMatchObject([
+      { key: 'herdr:w4:p2', label: 'cc-g2', state: 'active', paneId: 'w4:p2', agent: 'claude', status: 'working' },
+      { key: 'herdr:w4:p1', label: 'example-repo', state: 'idle', paneId: 'w4:p1', agent: 'claude', status: 'idle' },
     ])
   })
 
-  it('working 以外の未知ステータスは idle 扱い（error 判定はしない）', () => {
-    const raw = execWith([agent('w4:p9', 'starting', '/tmp/foo')])()
-    expect(parseHerdrAgents(raw)[0].state).toBe('idle')
+  it('blocked→waiting / done→done、未知ステータスは idle', () => {
+    expect(parseHerdrAgents([agent('a', 'blocked', '/x'), agent('b', 'done', '/y'), agent('c', 'starting', '/z')])
+      .map((a) => a.state)).toEqual(['waiting', 'done', 'idle'])
   })
 
-  it('pane_id 欠落・壊れた JSON は無視する', () => {
-    expect(parseHerdrAgents('not json')).toEqual([])
-    expect(parseHerdrAgents(JSON.stringify({ result: { agents: [{ cwd: '/a' }] } }))).toEqual([])
-    expect(parseHerdrAgents(JSON.stringify({ result: {} }))).toEqual([])
+  it('pane_id 欠落・配列以外は無視する', () => {
+    expect(parseHerdrAgents(undefined)).toEqual([])
+    expect(parseHerdrAgents([{ cwd: '/a' }, null])).toEqual([])
   })
 })
 
-describe('pollHerdrActivity', () => {
-  it('working は active として登録される', () => {
-    const changed = pollHerdrActivity(execWith([agent('w4:p2', 'working', '/work/cc-g2')]))
-    expect(changed).toBe(true)
-    expect(store.sessionActivity.get('herdr:w4:p2')).toMatchObject({
-      tmuxTarget: 'herdr:w4:p2',
-      label: 'cc-g2',
-      state: 'active',
-    })
+describe('applyHerdrAgents', () => {
+  it('新規ペインを登録する（初回観測は通知しない）', async () => {
+    const p = nextPane()
+    expect(applyHerdrAgents([agent(p, 'working', '/a/b/repo', 'dsh-tui')])).toBe(true)
+    expect(store.sessionActivity.get(`herdr:${p}`)).toMatchObject({ tmuxTarget: `herdr:${p}`, label: 'repo', state: 'active' })
+    await flush()
+    expect(store.notifications).toHaveLength(0)
   })
 
-  it('idle は idle として登録される', () => {
-    pollHerdrActivity(execWith([agent('w4:p1', 'idle', '/a/b/MinimalMem')]))
-    expect(store.sessionActivity.get('herdr:w4:p1')).toMatchObject({
-      label: 'MinimalMem',
-      state: 'idle',
-    })
-  })
-
-  it('前回いたペインが消えたら dead → 次回ポーリングで掃除（2 段階）', () => {
-    pollHerdrActivity(execWith([agent('w4:p2', 'idle', '/a/b/repo')]))
-    expect(store.sessionActivity.get('herdr:w4:p2').state).toBe('idle')
-
-    // ペイン close: agent list から消えた最初のポーリングで dead 表示
-    const changed1 = pollHerdrActivity(execWith([]))
-    expect(changed1).toBe(true)
-    expect(store.sessionActivity.get('herdr:w4:p2').state).toBe('dead')
-
-    // 次のポーリングでも不在なら map から掃除
-    const changed2 = pollHerdrActivity(execWith([]))
-    expect(changed2).toBe(true)
-    expect(store.sessionActivity.has('herdr:w4:p2')).toBe(false)
-  })
-
-  it('状態が変わらなければ changed=false（無駄な SSE 配信を避ける）', () => {
-    pollHerdrActivity(execWith([agent('w4:p2', 'working', '/a/b/repo')]))
-    const changed = pollHerdrActivity(execWith([agent('w4:p2', 'working', '/a/b/repo')]))
-    expect(changed).toBe(false)
-  })
-
-  it('herdr 不在/失敗時は静かにスキップし、herdr エントリを触らない', () => {
-    // 既存の herdr エントリを用意
-    pollHerdrActivity(execWith([agent('w4:p2', 'working', '/a/b/repo')]))
-    expect(herdrEntries()).toEqual(['herdr:w4:p2'])
-
-    const throwExec = () => { throw Object.assign(new Error('spawn herdr ENOENT'), { code: 'ENOENT' }) }
-    const changed = pollHerdrActivity(throwExec)
-    expect(changed).toBe(false)
-    // 失敗時は既存エントリを保持（誤って dead/削除しない）
-    expect(store.sessionActivity.get('herdr:w4:p2').state).toBe('active')
-  })
-
-  it('herdr 不在から始めても例外を投げず、エントリを作らない', () => {
-    store.sessionActivity.clear()
-    const throwExec = () => { throw new Error('command not found') }
-    expect(() => pollHerdrActivity(throwExec)).not.toThrow()
+  it('前回いたペインが消えたら dead → 次回で掃除（2 段階）', () => {
+    const p = nextPane()
+    applyHerdrAgents([agent(p, 'idle', '/a/b/repo')])
+    expect(applyHerdrAgents([])).toBe(true)
+    expect(store.sessionActivity.get(`herdr:${p}`).state).toBe('dead')
+    expect(applyHerdrAgents([])).toBe(true)
     expect(herdrEntries()).toHaveLength(0)
+  })
+
+  it('状態が変わらなければ changed=false', () => {
+    const p = nextPane()
+    applyHerdrAgents([agent(p, 'working', '/a/b/repo')])
+    expect(applyHerdrAgents([agent(p, 'working', '/a/b/repo')])).toBe(false)
+  })
+
+  it('購読が無い間（transitions=true）は list の差分で遷移を処理する', async () => {
+    const p = nextPane()
+    applyHerdrAgents([agent(p, 'working', '/a/b/poll', 'dsh-tui')])
+    applyHerdrAgents([agent(p, 'idle', '/a/b/poll', 'dsh-tui')])
+    await flush()
+    expect(completions('poll')).toHaveLength(1)
+  })
+})
+
+describe('applyHerdrStatusEvent', () => {
+  it('5 秒未満のターン（working→idle）もイベントで完了通知になる', async () => {
+    const p = nextPane()
+    applyHerdrAgents([agent(p, 'idle', '/a/b/quick', 'dsh-tui')])
+    expect(applyHerdrStatusEvent({ pane_id: p, agent_status: 'working', agent: 'dsh-tui' })).toBe(true)
+    expect(store.sessionActivity.get(`herdr:${p}`).state).toBe('active')
+    applyHerdrStatusEvent({ pane_id: p, agent_status: 'idle', agent: 'dsh-tui' })
+    await flush()
+    expect(completions('quick')).toHaveLength(1)
+    expect(completions('quick')[0].metadata).toMatchObject({ hookType: 'stop', tmuxTarget: `herdr:${p}` })
+  })
+
+  it('購読中は古い list で状態を巻き戻さず、完了通知を二重にしない', async () => {
+    const p = nextPane()
+    applyHerdrAgents([agent(p, 'idle', '/a/b/race', 'dsh-tui')])
+    applyHerdrStatusEvent({ pane_id: p, agent_status: 'working' })
+    applyHerdrStatusEvent({ pane_id: p, agent_status: 'idle' })
+    // イベントより前に取った list（まだ working）が後から届く
+    applyHerdrAgents([agent(p, 'working', '/a/b/race', 'dsh-tui')], { transitions: false })
+    expect(store.sessionActivity.get(`herdr:${p}`).state).toBe('idle')
+    // フォールバックの list（idle）でも重ねない
+    applyHerdrAgents([agent(p, 'idle', '/a/b/race', 'dsh-tui')], { transitions: false })
+    await flush()
+    expect(completions('race')).toHaveLength(1)
+  })
+
+  it('同じ状態の再送・未知ペイン・壊れたデータは無視する', () => {
+    const p = nextPane()
+    applyHerdrAgents([agent(p, 'idle', '/a/b/x')])
+    expect(applyHerdrStatusEvent({ pane_id: p, agent_status: 'idle' })).toBe(false)
+    expect(applyHerdrStatusEvent({ pane_id: 'w0:unknown', agent_status: 'working' })).toBe(false)
+    expect(applyHerdrStatusEvent(undefined)).toBe(false)
+  })
+})
+
+describe('classifyHerdrEvent', () => {
+  it('ドット区切り・スネークケースの両方を分類する', () => {
+    expect(classifyHerdrEvent('pane.agent_status_changed')).toBe('status')
+    expect(classifyHerdrEvent('pane_created')).toBe('lifecycle')
+    expect(classifyHerdrEvent('pane.closed')).toBe('lifecycle')
+    expect(classifyHerdrEvent('pane.scroll_changed')).toBe('ignore')
   })
 })
