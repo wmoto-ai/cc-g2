@@ -60,8 +60,8 @@
     "vite": "^8.3.1"
   },
   "devDependencies": {
-    "@evenrealities/evenhub-cli": "0.1.13",
-    "@evenrealities/evenhub-simulator": "0.9.3",
+    "@evenrealities/evenhub-cli": "0.1.14",
+    "@evenrealities/evenhub-simulator": "0.9.5",
     "concurrently": "10.0.5",
     "typescript": "^5.9.3",
     "vite-plugin-node-polyfills": "0.28.0",
