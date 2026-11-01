@@ -57,16 +57,16 @@
     "grammy": "^1.46.0",
     "telegram": "2.26.22",
     "tsx": "^4.23.15",
-    "vite": "^8.3.3"
+    "vite": "^8.3.5"
   },
   "devDependencies": {
-    "@evenrealities/evenhub-cli": "0.1.14",
+    "@evenrealities/evenhub-cli": "0.2.0",
     "@evenrealities/evenhub-simulator": "0.9.5",
-    "concurrently": "10.0.5",
+    "concurrently": "10.0.6",
     "typescript": "^5.9.3",
     "vite-plugin-node-polyfills": "0.28.0",
     "vitest": "^4.1.11",
-    "wait-on": "9.1.0"
+    "wait-on": "9.5.1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
