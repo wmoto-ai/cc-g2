@@ -19,7 +19,7 @@
     "grammy": "^1.46.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.5",
     "tsx": "^4.23.15",
     "typescript": "^6.0.0",
     "vitest": "^4.1.11"
