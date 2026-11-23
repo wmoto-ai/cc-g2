@@ -1,4 +1,4 @@
-minimumReleaseAge: 10080
+minimumReleaseAge: 4320  # 3 日(グローバル設定と同じ。分単位)
 minimumReleaseAgeExclude:
   - esbuild
   - '@esbuild/*'
