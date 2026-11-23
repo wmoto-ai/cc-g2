@@ -845,6 +845,13 @@ async function processUserRequest(body, requestModel, userText) {
   return responseBody
 }
 
-server.listen(PORT, HOST, () => {
-  console.log(`Claude Code voice-entry listening on http://${HOST}:${PORT}`)
+// CC_G2_VOICE_ENTRY_BIND はカンマ区切りで複数指定可（例: 127.0.0.1,<tailscale IP>）
+const HOSTS = HOST.split(',').map((h) => h.trim()).filter(Boolean)
+server.listen(PORT, HOSTS[0], () => {
+  console.log(`Claude Code voice-entry listening on http://${HOSTS[0]}:${PORT}`)
 })
+for (const h of HOSTS.slice(1)) {
+  http.createServer(server.listeners('request')[0])
+    .on('error', (err) => console.error(`voice-entry listen failed on ${h}:${PORT}: ${err.message}`))
+    .listen(PORT, h, () => console.log(`Claude Code voice-entry listening on http://${h}:${PORT}`))
+}

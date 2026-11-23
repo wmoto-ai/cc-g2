@@ -60,7 +60,8 @@ function pollSessionActivity() {
   try {
     tmuxPanes = execSync(
       `tmux list-panes -a -F "${PANE_LIST_FORMAT}"`,
-      { encoding: 'utf8', timeout: 3000 },
+      // stderr を捨てる: tmux 未起動（herdr のみ等）だと 5 秒ごとに hub.log へエラーが流れる
+      { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] },
     ).trim().split('\n').filter(Boolean)
   } catch {
     // tmux 取得失敗時は tmux 由来エントリだけ掃除する（herdr 由来は独立経路で維持）。
@@ -97,7 +98,7 @@ function pollSessionActivity() {
           state = 'active'
         } else {
           try {
-            const raw = execFileSync('tmux', ['capture-pane', '-t', target, '-p'], { encoding: 'utf8', timeout: 2000 })
+            const raw = execFileSync('tmux', ['capture-pane', '-t', target, '-p'], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] })
             const content = raw.split('\n').slice(-15).join('\n')
             const hasError = /[⚠✗]|error|overload|retry.*fail|429|500|timed?\s*out/i.test(content)
             state = hasError ? 'error' : 'idle'

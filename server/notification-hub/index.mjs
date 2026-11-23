@@ -415,16 +415,25 @@ process.on('uncaughtExceptionMonitor', (err) => {
 })
 
 await bootstrap()
-server.listen(port, host, () => {
-  log(`notification-hub listening on http://${host}:${port}`)
+// HUB_BIND はカンマ区切りで複数指定可（例: 127.0.0.1,<tailscale IP>。LAN へは公開しない）
+const hosts = host.split(',').map((h) => h.trim()).filter(Boolean)
+server.listen(port, hosts[0], () => {
+  log(`notification-hub listening on http://${hosts[0]}:${port}`)
 })
+for (const h of hosts.slice(1)) {
+  createServer(handleRequest)
+    .on('error', (err) => log(`listen failed on ${h}:${port}: ${err.message}`))
+    .listen(port, h, () => log(`notification-hub listening on http://${h}:${port}`))
+}
 // G2 アプリ用の追加ポート（既定 5173 運用時、端末に保存済みの URL をそのまま使うため）。
 // 同じハンドラで API も答えるので、mirror.html の同一オリジン /api もここで受ける
 const appPort = Number(process.env.HUB_APP_PORT || 0)
 if (appPort && appPort !== port) {
-  createServer(handleRequest)
-    .on('error', (err) => log(`G2 app listen failed on ${appPort}: ${err.message}`))
-    .listen(appPort, host, () => {
-      log(`G2 app listening on http://${host}:${appPort} (static=${staticDir || 'off'})`)
-    })
+  for (const h of hosts) {
+    createServer(handleRequest)
+      .on('error', (err) => log(`G2 app listen failed on ${h}:${appPort}: ${err.message}`))
+      .listen(appPort, h, () => {
+        log(`G2 app listening on http://${h}:${appPort} (static=${staticDir || 'off'})`)
+      })
+  }
 }

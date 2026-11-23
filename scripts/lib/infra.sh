@@ -19,6 +19,13 @@
 
 is_hub_running()  { curl -s --max-time 1 "http://127.0.0.1:$HUB_PORT/api/health" >/dev/null 2>&1; }
 # 稼働中 Hub の承認モード（/api/health の approvalMode）。取得できなければ空を返す。
+# 待ち受けアドレス: loopback + Tailscale IP のみ(LAN には公開しない)。カンマ区切り
+bind_hosts() {
+  local ts_ip
+  ts_ip=$(tailscale ip -4 2>/dev/null | head -1 || true)
+  echo "127.0.0.1${ts_ip:+,$ts_ip}"
+}
+
 hub_approval_mode() {
   curl -s --max-time 1 "http://127.0.0.1:$HUB_PORT/api/health" 2>/dev/null \
     | jq -r '.approvalMode // empty' 2>/dev/null || true
@@ -258,15 +265,11 @@ ensure_slim_server() {
   mkdir -p "$(dirname "$hub_log")"
 
   local -a envs=(
-    HUB_BIND=0.0.0.0
+    "HUB_BIND=$(bind_hosts)"
     "HUB_PORT=$HUB_PORT"
     "HUB_APP_PORT=$VITE_PORT"
     "HUB_STATIC_DIR=${G2_PROJECT_DIR}/dist"
-    "HUB_AUTH_TOKEN=$HUB_AUTH_TOKEN"
     "HUB_APPROVAL_MODE=$(requested_approval_mode)"
-    "GROQ_API_KEY=$GROQ_API_KEY_RESOLVED"
-    "OPENAI_API_KEY=$OPENAI_API_KEY_RESOLVED"
-    "SONIOX_API_KEY=$SONIOX_API_KEY_RESOLVED"
     "HUB_ALLOWED_ORIGINS=$allowed_origins"
     "HUB_ALLOWED_HOSTS=$(resolve_env_var "HUB_ALLOWED_HOSTS" "HUB_ALLOWED_HOSTS" "$G2_PROJECT_DIR")"
     "HUB_REPLY_RELAY_SOURCES=${HUB_REPLY_RELAY_SOURCES:-g2,web,telegram}"
@@ -283,7 +286,6 @@ ensure_slim_server() {
     "CC_G2_VOICE_ENTRY_ENABLED=$VOICE_ENTRY_ENABLED"
     "CC_G2_VOICE_ENTRY_PORT=$VOICE_ENTRY_PORT"
     "CC_G2_VOICE_ENTRY_BIND=$VOICE_ENTRY_BIND"
-    "CC_G2_VOICE_ENTRY_TOKEN=$VOICE_ENTRY_TOKEN"
     "CC_G2_VOICE_ENTRY_LOG_FILE=$VOICE_ENTRY_LOG_FILE"
     "CC_G2_VOICE_ENTRY_LAST_SESSION_FILE=$VOICE_ENTRY_LAST_SESSION_FILE"
     "CC_G2_REPO_ROOTS=$VOICE_ENTRY_REPO_ROOTS"
@@ -324,9 +326,19 @@ ensure_slim_server() {
 
   info "cc-g2-server 起動 (hub:$HUB_PORT app:$VITE_PORT voice:$VOICE_ENTRY_PORT telegram:${TG_ADAPTER_ENABLED:-0})..."
   # bash 3.2 の set -u では空配列の展開がエラーになるため ${a[@]+...} で展開する
-  nohup ${prefix[@]+"${prefix[@]}"} env -C "$G2_PROJECT_DIR" "${envs[@]}" \
-    node --import tsx ${node_flags[@]+"${node_flags[@]}"} server/cc-g2-server.mjs \
-    >> "$hub_log" 2>&1 &
+  # 秘密（hub token・voice-entry token・STT API キー）は env の引数に載せると ps で見えるので、
+  # サブシェルで export して環境経由で渡す（op-sa run → env → node に継承される。
+  # env ファイル側に同名があればそちらが勝つが、bot の env ファイルは TELEGRAM_* / HUB_BASE_URL のみ）
+  (
+    export HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" \
+      CC_G2_VOICE_ENTRY_TOKEN="$VOICE_ENTRY_TOKEN" \
+      GROQ_API_KEY="$GROQ_API_KEY_RESOLVED" \
+      OPENAI_API_KEY="$OPENAI_API_KEY_RESOLVED" \
+      SONIOX_API_KEY="$SONIOX_API_KEY_RESOLVED"
+    nohup ${prefix[@]+"${prefix[@]}"} env -C "$G2_PROJECT_DIR" "${envs[@]}" \
+      node --import tsx ${node_flags[@]+"${node_flags[@]}"} server/cc-g2-server.mjs \
+      >> "$hub_log" 2>&1 &
+  )
 
   if wait_for is_hub_running 15 0.5; then
     info "cc-g2-server: OK"
@@ -383,29 +395,32 @@ ensure_legacy_infra() {
       allowed_origins="${allowed_origins},http://${ts_ip}:${VITE_PORT}"
     fi
     mkdir -p "$(dirname "$hub_log")"
-    nohup env -C "$G2_PROJECT_DIR" \
-      HUB_BIND=0.0.0.0 \
-      HUB_PORT=$HUB_PORT \
-      HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" \
-      HUB_APPROVAL_MODE="$(requested_approval_mode)" \
-      GROQ_API_KEY="$GROQ_API_KEY_RESOLVED" \
-      OPENAI_API_KEY="$OPENAI_API_KEY_RESOLVED" \
-      SONIOX_API_KEY="$SONIOX_API_KEY_RESOLVED" \
-      HUB_ALLOWED_ORIGINS="$allowed_origins" \
-      HUB_ALLOWED_HOSTS="$(resolve_env_var "HUB_ALLOWED_HOSTS" "HUB_ALLOWED_HOSTS" "$G2_PROJECT_DIR")" \
-      HUB_REPLY_RELAY_SOURCES="${HUB_REPLY_RELAY_SOURCES:-g2,web,telegram}" \
-      HUB_REPLY_RELAY_CMD='bash server/notification-hub/reply-relay.sh' \
-      RELAY_ENABLE_TMUX=1 \
-      RELAY_TMUX_AUTO_DETECT=1 \
-      RELAY_TMUX_USE_NOTIFICATION_TARGET=1 \
-      RELAY_TMUX_STRICT_APPROVAL_TARGET=1 \
-      RELAY_MESSAGE_STYLE='simple' \
-      RELAY_TMUX_SUBMIT_KEY='C-j' \
-      RELAY_TMUX_SUBMIT_FALLBACK_KEY='Enter' \
-      RELAY_LOG_FILE='tmp/notification-hub/reply-relay-events.jsonl' \
-      RELAY_AGENT_LOG_FILE='tmp/notification-hub/reply-relay-agent.log' \
-      node server/notification-hub/index.mjs \
-      >> "$hub_log" 2>&1 &
+    # 秘密は env の引数に載せず、サブシェルで export して環境経由で渡す（ps に出さない）
+    (
+      export HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" \
+        GROQ_API_KEY="$GROQ_API_KEY_RESOLVED" \
+        OPENAI_API_KEY="$OPENAI_API_KEY_RESOLVED" \
+        SONIOX_API_KEY="$SONIOX_API_KEY_RESOLVED"
+      nohup env -C "$G2_PROJECT_DIR" \
+        HUB_BIND="$(bind_hosts)" \
+        HUB_PORT=$HUB_PORT \
+        HUB_APPROVAL_MODE="$(requested_approval_mode)" \
+        HUB_ALLOWED_ORIGINS="$allowed_origins" \
+        HUB_ALLOWED_HOSTS="$(resolve_env_var "HUB_ALLOWED_HOSTS" "HUB_ALLOWED_HOSTS" "$G2_PROJECT_DIR")" \
+        HUB_REPLY_RELAY_SOURCES="${HUB_REPLY_RELAY_SOURCES:-g2,web,telegram}" \
+        HUB_REPLY_RELAY_CMD='bash server/notification-hub/reply-relay.sh' \
+        RELAY_ENABLE_TMUX=1 \
+        RELAY_TMUX_AUTO_DETECT=1 \
+        RELAY_TMUX_USE_NOTIFICATION_TARGET=1 \
+        RELAY_TMUX_STRICT_APPROVAL_TARGET=1 \
+        RELAY_MESSAGE_STYLE='simple' \
+        RELAY_TMUX_SUBMIT_KEY='C-j' \
+        RELAY_TMUX_SUBMIT_FALLBACK_KEY='Enter' \
+        RELAY_LOG_FILE='tmp/notification-hub/reply-relay-events.jsonl' \
+        RELAY_AGENT_LOG_FILE='tmp/notification-hub/reply-relay-agent.log' \
+        node server/notification-hub/index.mjs \
+        >> "$hub_log" 2>&1 &
+    )
 
     # Hub 起動待ち
     if wait_for is_hub_running 10 0.5; then
@@ -429,10 +444,12 @@ ensure_legacy_infra() {
   if $need_vite; then
     info "Vite dev server 起動 (port $VITE_PORT)..."
     local vite_log="${G2_PROJECT_DIR}/tmp/notification-hub/vite.log"
-    nohup env -C "$G2_PROJECT_DIR" \
-      VITE_HUB_TOKEN="$HUB_AUTH_TOKEN" \
-      ./node_modules/.bin/vite --host 0.0.0.0 --port "$VITE_PORT" \
-      >> "$vite_log" 2>&1 &
+    (
+      export VITE_HUB_TOKEN="$HUB_AUTH_TOKEN"
+      nohup env -C "$G2_PROJECT_DIR" \
+        ./node_modules/.bin/vite --host 0.0.0.0 --port "$VITE_PORT" \
+        >> "$vite_log" 2>&1 &
+    )
 
     if wait_for is_vite_running 10 0.5; then
       info "Vite: OK"
@@ -448,16 +465,18 @@ ensure_legacy_infra() {
       info "Voice entry 起動 (port $VOICE_ENTRY_PORT)..."
       local voice_log="$VOICE_ENTRY_LOG_FILE"
       mkdir -p "$(dirname "$voice_log")"
-      nohup env -C "$G2_PROJECT_DIR" \
-        CC_G2_VOICE_ENTRY_PORT="$VOICE_ENTRY_PORT" \
-        CC_G2_VOICE_ENTRY_BIND="$VOICE_ENTRY_BIND" \
-        CC_G2_VOICE_ENTRY_TOKEN="$VOICE_ENTRY_TOKEN" \
-        CC_G2_VOICE_ENTRY_LOG_FILE="$VOICE_ENTRY_LOG_FILE" \
-        CC_G2_VOICE_ENTRY_LAST_SESSION_FILE="$VOICE_ENTRY_LAST_SESSION_FILE" \
-        CC_G2_REPO_ROOTS="$VOICE_ENTRY_REPO_ROOTS" \
-        CC_G2_REPO_SCAN_DEPTH="$VOICE_ENTRY_SCAN_DEPTH" \
-        node server/voice-entry/index.mjs \
-        >> "$voice_log" 2>&1 &
+      (
+        export CC_G2_VOICE_ENTRY_TOKEN="$VOICE_ENTRY_TOKEN"
+        nohup env -C "$G2_PROJECT_DIR" \
+          CC_G2_VOICE_ENTRY_PORT="$VOICE_ENTRY_PORT" \
+          CC_G2_VOICE_ENTRY_BIND="$VOICE_ENTRY_BIND" \
+          CC_G2_VOICE_ENTRY_LOG_FILE="$VOICE_ENTRY_LOG_FILE" \
+          CC_G2_VOICE_ENTRY_LAST_SESSION_FILE="$VOICE_ENTRY_LAST_SESSION_FILE" \
+          CC_G2_REPO_ROOTS="$VOICE_ENTRY_REPO_ROOTS" \
+          CC_G2_REPO_SCAN_DEPTH="$VOICE_ENTRY_SCAN_DEPTH" \
+          node server/voice-entry/index.mjs \
+          >> "$voice_log" 2>&1 &
+      )
 
       if wait_for is_voice_entry_running 10 0.5; then
         info "Voice entry: OK"
