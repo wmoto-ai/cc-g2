@@ -18,7 +18,7 @@ overrides:
   shell-quote: 1.11.0
   # wait-on の許容範囲内で、axios / joi の既知脆弱性を修正した版へ固定。
   axios: 1.20.0
-  joi: 18.2.9
+  joi: 18.3.2
   # vite-plugin-node-polyfills 経由の url の許容範囲内で、qs の既知脆弱性を修正した版へ固定。
   qs: 6.16.1
   # wait-on → axios 経由の follow-redirects の許容範囲内で、認証ヘッダー漏えいを修正した版へ固定。
