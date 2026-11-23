@@ -42,7 +42,6 @@ cc-g2 supports Claude Code / Codex CLI / Copilot CLI, plus dsh-tui running in he
 - **Local settlement detection**: a manual approval in the terminal, or codex's automatic approval via `approvals_reviewer=auto_review`, is detected through the PostToolUse hook and auto-resolves the pending approval on the Hub (the Telegram buttons close and the G2 display updates).
 - **Image display** (see "What works today"): the usage prompt is auto-injected only into Claude Code / Codex CLI. Other agents can run `scripts/g2-send-image.sh` directly (it reads the Hub token file when `HUB_AUTH_TOKEN` is unset).
 - **dsh-tui**: the Hub receives herdr state transitions via `events.subscribe`, reads the approval panel (command and reason) on `blocked`, and shows it on G2. Approve injects `1`, deny injects `2` (plus an optional comment). Only supported when running in herdr.
-- Local settlement detection for Copilot CLI is implemented but not yet verified on real hardware.
 
 ## Known limitations
 
@@ -83,7 +82,7 @@ The Hub is intended to mirror and answer explicit permission prompts. It should 
 | **hub** | home / dev, QR launch, sideloading | iPhone → Mac (same LAN / Tailscale) |
 | **telegram** | on the go, primary path for the Even Hub Store build | Telegram (no Hub / Tailscale needed) |
 
-telegram mode reproduces the G2 experience (notification list, detail, approval, voice comment, image) over Telegram even when the iPhone cannot reach the Hub or Tailscale. See the [Telegram adapter README](packages/telegram-adapter/README.md) for setup. Telegram bot chats are not end-to-end encrypted, and the Mini App stores its Telegram session in Even App local storage, so use a dedicated agent account with 2FA enabled.
+telegram mode reproduces the G2 experience (notification list, detail, approval, voice comment, image) over Telegram even when the iPhone cannot reach the Hub or Tailscale. See the [Telegram adapter README](packages/telegram-adapter/README.md) for setup. Telegram bot chats are not end-to-end encrypted, and the Mini App stores its Telegram session in Even App local storage, so use a dedicated agent account with 2FA enabled. See [docs/telegram-mode.md](docs/telegram-mode.md) for the spec and threat model.
 
 ## Recommended setup
 

@@ -637,30 +637,37 @@ function updateNotifInfo() {
 document.getElementById('notif-fetch-btn')!.addEventListener('click', async () => {
   const statusEl = document.getElementById('notif-status')!
   statusEl.textContent = t('notif_fetching')
+  let items
   try {
-    const items = await notifClient.list(20)
-    ctx.hubReachable = true
-    ctx.lastNotifRefreshAt = Date.now()
-    ctx.notifState.items = items
-    ctx.notifState.selectedIndex = 0
-    if (ctx.notifState.screen !== 'list') {
-      ctx.notifState.screen = 'idle'
-      if (ctx.connection && !glassesUI.isRendering()) {
-        await glassesUI.showIdleLauncher(ctx.connection, { dimMode: appConfig.notificationIdleDimMode })
-      }
-    }
-    statusEl.textContent = tp('notif_fetched', { n: items.length })
-    document.getElementById('notif-show-g2-btn')!.removeAttribute('disabled')
-    ctx.transport.connectEvents(ctx)
-    ctx.ui.updateNotifInfo()
-    log(`通知取得: ${items.length}件`)
+    items = await notifClient.list(20)
   } catch (err) {
     ctx.hubReachable = false
     const msg = errorMessage(err)
     statusEl.textContent = `${t('notif_fetch_failed')}: ${msg}`
     log(`通知取得失敗: ${msg}`)
     ctx.ui.updateDashboard()
+    return
   }
+  ctx.hubReachable = true
+  ctx.lastNotifRefreshAt = Date.now()
+  ctx.notifState.items = items
+  ctx.notifState.selectedIndex = 0
+  statusEl.textContent = tp('notif_fetched', { n: items.length })
+  document.getElementById('notif-show-g2-btn')!.removeAttribute('disabled')
+  log(`通知取得: ${items.length}件`)
+  // G2 表示の失敗を Hub 到達不可（hub = error）と混同しない。SSE 接続も G2 表示の成否に依らず開始する
+  if (ctx.notifState.screen !== 'list') {
+    ctx.notifState.screen = 'idle'
+    if (ctx.connection && !glassesUI.isRendering()) {
+      try {
+        await glassesUI.showIdleLauncher(ctx.connection, { dimMode: appConfig.notificationIdleDimMode })
+      } catch (err) {
+        log(`G2表示失敗: ${errorMessage(err)}`)
+      }
+    }
+  }
+  ctx.transport.connectEvents(ctx)
+  ctx.ui.updateNotifInfo()
 })
 
 // dev 専用: ?imgopen=<notificationId|latest> で画像表示フローを自動実行

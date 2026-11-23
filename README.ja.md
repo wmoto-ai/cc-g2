@@ -42,7 +42,6 @@ cc-g2 は Claude Code / Codex CLI / Copilot CLI と、herdr 上の dsh-tui に�
 - **ローカル決着検知**: ターミナルでの手動承認や、codex の `approvals_reviewer=auto_review` による自動承認を PostToolUse フックで検知し、Hub の承認を自動解決します（Telegram のボタンが閉じ、G2 の表示も更新されます）。
 - **画像表示**（「できること」参照）の使い方プロンプトの自動注入は Claude Code / Codex CLI のみです。その他のエージェントは `scripts/g2-send-image.sh` を直接実行すれば送れます（`HUB_AUTH_TOKEN` が無ければ Hub の token ファイルを読みます）。
 - **dsh-tui**: herdr の `events.subscribe` で状態遷移を受け、`blocked` で承認パネル（コマンドと理由）を読み取って G2 に出します。承認は `1`、拒否は `2`（＋コメント）をキー注入します。herdr で動かしている場合のみ対応です。
-- Copilot CLI のローカル決着検知は実装済みですが、実機未検証です。
 
 ## 既知の制限
 
@@ -93,7 +92,7 @@ Hub は明示的な permission prompt を中継して応答するためのもの
 | **hub** | 自宅 / dev、QR 起動、サイドロード | iPhone → Mac（同一 LAN / Tailscale） |
 | **telegram** | 外出先、Even Hub Store 配布版の主経路 | Telegram（Hub / Tailscale 不要） |
 
-telegram モードは、Hub や Tailscale への到達性がなくても G2 体験（通知一覧・詳細・承認・音声コメント・画像）を Telegram 経由で成立させます。セットアップは [Telegram adapter README](packages/telegram-adapter/README.md) を参照してください。Telegram の bot チャットは E2E 暗号化ではなく、ミニアプリの Telegram セッションは Even App のローカルストレージに保存されるため、2FA を有効にしたエージェント専用アカウントを推奨します。
+telegram モードは、Hub や Tailscale への到達性がなくても G2 体験（通知一覧・詳細・承認・音声コメント・画像）を Telegram 経由で成立させます。セットアップは [Telegram adapter README](packages/telegram-adapter/README.md) を参照してください。Telegram の bot チャットは E2E 暗号化ではなく、ミニアプリの Telegram セッションは Even App のローカルストレージに保存されるため、2FA を有効にしたエージェント専用アカウントを推奨します。仕様と脅威モデルは [docs/telegram-mode.md](docs/telegram-mode.md) を参照してください。
 
 ## 推奨構成
 
@@ -446,7 +445,7 @@ cc-g2/
 ├── scripts/                  # 起動 / hook / simulator 用スクリプト
 │   └── lib/                  #   cc-g2.sh の分割ライブラリ（tokens / infra / tmux / agent-launch / doctor）
 ├── test/                     # テスト
-├── docs/                     # 既知の制限・スクリーンショット
+├── docs/                     # Telegram モード仕様・既知の制限・スクリーンショット
 ├── .claude/settings.json     # この repo 作業用の設定
 └── .env.example              # 環境変数テンプレート
 ```

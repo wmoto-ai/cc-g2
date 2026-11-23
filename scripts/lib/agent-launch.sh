@@ -215,9 +215,10 @@ case "$CLAUDE_PERMISSION_HOOK_TIMEOUT" in
   ''|*[!0-9]*) CLAUDE_PERMISSION_HOOK_TIMEOUT=86400 ;;
 esac
 
+# hub token は argv(--settings)に載せず env 経由で hook ヘッダへ展開する。
+# Claude Code は名前に TOKEN/AUTH を含む env をヘッダ展開しないため別名 CC_G2_HUB_HEADER を使う
 SETTINGS_JSON=$(jq -nc \
   --arg hub_url "http://127.0.0.1:${HUB_PORT}" \
-  --arg hub_token "$HUB_AUTH_TOKEN" \
   --arg statusline_cmd "$STATUSLINE_CMD" \
   --arg stop_cmd "bash ${STOP_NOTIFY_SCRIPT}" \
   --argjson permission_timeout "$CLAUDE_PERMISSION_HOOK_TIMEOUT" \
@@ -229,8 +230,8 @@ SETTINGS_JSON=$(jq -nc \
           type: "http",
           url: ($hub_url + "/api/hooks/permission-request"),
           timeout: $permission_timeout,
-          headers: {"X-Tmux-Target": "$CC_G2_TMUX_TARGET", "X-Tmux-Session": "$CC_G2_TMUX_SESSION", "X-CC-G2-Token": $hub_token},
-          allowedEnvVars: ["CC_G2_TMUX_TARGET", "CC_G2_TMUX_SESSION"]
+          headers: {"X-Tmux-Target": "$CC_G2_TMUX_TARGET", "X-Tmux-Session": "$CC_G2_TMUX_SESSION", "X-CC-G2-Token": "$CC_G2_HUB_HEADER"},
+          allowedEnvVars: ["CC_G2_TMUX_TARGET", "CC_G2_TMUX_SESSION", "CC_G2_HUB_HEADER"]
         }]
       }],
       PostToolUse: [{
@@ -239,7 +240,8 @@ SETTINGS_JSON=$(jq -nc \
           type: "http",
           url: ($hub_url + "/api/hooks/tool-executed"),
           timeout: 10,
-          headers: {"X-CC-G2-Token": $hub_token}
+          headers: {"X-CC-G2-Token": "$CC_G2_HUB_HEADER"},
+          allowedEnvVars: ["CC_G2_HUB_HEADER"]
         }]
       }],
       Stop: [{
@@ -272,7 +274,7 @@ else
 fi
 
 if [ "${#CLAUDE_ARGS[@]}" -gt 0 ]; then
-  exec env MOSHI_NOTIFY=1 HUB_PORT="$HUB_PORT" HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" CC_G2_ORIG_STATUSLINE_CMD="$ORIG_STATUSLINE_CMD" "$CLAUDE_BIN" --settings "$SETTINGS_JSON" --append-system-prompt "$G2_IMAGE_PROMPT" "${CLAUDE_ARGS[@]}"
+  exec env MOSHI_NOTIFY=1 HUB_PORT="$HUB_PORT" HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" CC_G2_HUB_HEADER="$HUB_AUTH_TOKEN" CC_G2_ORIG_STATUSLINE_CMD="$ORIG_STATUSLINE_CMD" "$CLAUDE_BIN" --settings "$SETTINGS_JSON" --append-system-prompt "$G2_IMAGE_PROMPT" "${CLAUDE_ARGS[@]}"
 fi
-exec env MOSHI_NOTIFY=1 HUB_PORT="$HUB_PORT" HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" CC_G2_ORIG_STATUSLINE_CMD="$ORIG_STATUSLINE_CMD" "$CLAUDE_BIN" --settings "$SETTINGS_JSON" --append-system-prompt "$G2_IMAGE_PROMPT"
+exec env MOSHI_NOTIFY=1 HUB_PORT="$HUB_PORT" HUB_AUTH_TOKEN="$HUB_AUTH_TOKEN" CC_G2_HUB_HEADER="$HUB_AUTH_TOKEN" CC_G2_ORIG_STATUSLINE_CMD="$ORIG_STATUSLINE_CMD" "$CLAUDE_BIN" --settings "$SETTINGS_JSON" --append-system-prompt "$G2_IMAGE_PROMPT"
 }

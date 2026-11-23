@@ -1,6 +1,6 @@
 {
   "name": "@wmoto-ai/cc-g2",
-  "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8",
+  "packageManager": "pnpm@12.21.0",
   "version": "0.5.0",
   "private": false,
   "type": "module",
@@ -65,12 +65,7 @@
     "concurrently": "10.0.5",
     "typescript": "^5.9.3",
     "vite-plugin-node-polyfills": "0.28.0",
-    "vitest": "^4.1.11",
+    "vitest": "^4.1.12",
     "wait-on": "9.1.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }
